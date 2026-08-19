@@ -25,17 +25,9 @@ const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().default("gpt-5.6"),
   DISCORD_BOT_TOKEN: z.string().optional(),
-  DISCORD_APPLICATION_ID: z.string().optional(),
-  DISCORD_GUILD_ID: z.string().optional(),
-  DISCORD_CHANNELS: z.string().default(""),
 });
 
 const parsed = envSchema.parse(process.env);
-
-export interface ConfiguredChannel {
-  id: string;
-  name: string;
-}
 
 export const config = {
   apiPort: parsed.API_PORT,
@@ -62,17 +54,7 @@ export const config = {
   openAiApiKey: parsed.OPENAI_API_KEY,
   openAiModel: parsed.OPENAI_MODEL,
   discord: {
-    enabled: Boolean(parsed.DISCORD_BOT_TOKEN && parsed.DISCORD_APPLICATION_ID),
+    enabled: Boolean(parsed.DISCORD_BOT_TOKEN),
     token: parsed.DISCORD_BOT_TOKEN,
-    applicationId: parsed.DISCORD_APPLICATION_ID,
-    guildId: parsed.DISCORD_GUILD_ID,
-    channels: parseChannels(parsed.DISCORD_CHANNELS),
   },
 };
-
-function parseChannels(raw: string): ConfiguredChannel[] {
-  return raw.split(",").map((entry) => entry.trim()).filter(Boolean).map((entry) => {
-    const [id, ...nameParts] = entry.split(":");
-    return { id, name: nameParts.join(":") || `channel-${id}` };
-  });
-}

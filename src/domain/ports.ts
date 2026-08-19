@@ -4,6 +4,7 @@ import type {
   DashboardStats,
   Delivery,
   DeliveryReason,
+  DeliveryTarget,
   Feedback,
   FeedbackInterface,
   FeedbackReaction,
@@ -61,12 +62,28 @@ export interface ContentExtractor {
   extract(url: string): Promise<ExtractedContent>;
 }
 
+export interface ArticlePageQuery {
+  limit: number;
+  offset: number;
+  unratedBy?: {
+    channelId: string;
+    userId: string;
+    interface: FeedbackInterface;
+  };
+}
+
+export interface ArticlePage {
+  articles: Article[];
+  total: number;
+}
+
 export interface ConciergeRepository {
   initialize(): Promise<void>;
   upsertArticle(article: IncomingArticle): Promise<{ article: Article; inserted: boolean }>;
   updateSourceMetadata(source: string, label: string, quality: number): Promise<void>;
   findArticle(id: string): Promise<Article | null>;
   listArticles(limit: number): Promise<Article[]>;
+  listArticlePage(query: ArticlePageQuery): Promise<ArticlePage>;
   listRecentlyDeliveredArticles(channelId: string, limit: number): Promise<Article[]>;
 
   ensureChannel(id: string, name: string): Promise<ChannelProfile>;
@@ -102,6 +119,15 @@ export interface ConciergeRepository {
     reason: DeliveryReason;
   }): Promise<Delivery>;
   findDeliveryByMessageId(messageId: string): Promise<Delivery | null>;
+
+  upsertDeliveryTarget(input: {
+    interface: string;
+    channelId: string;
+    channelName: string;
+    installationId: string | null;
+  }): Promise<DeliveryTarget>;
+  removeDeliveryTarget(deliveryInterface: string, channelId: string): Promise<boolean>;
+  listDeliveryTargets(deliveryInterface: string): Promise<DeliveryTarget[]>;
 
   startRun(source: string): Promise<IngestionRun>;
   finishRun(id: string, result: {

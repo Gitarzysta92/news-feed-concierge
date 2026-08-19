@@ -44,4 +44,30 @@ test("SQLite persists arbitrary source metadata and edge-neutral deliveries", as
   });
   assert.equal(await repository.hasDelivery("channel", inserted.article.id, "webhook"), true);
   assert.equal(await repository.hasDelivery("channel", inserted.article.id, "discord"), false);
+
+  const target = await repository.upsertDeliveryTarget({
+    interface: "discord",
+    channelId: "discord-channel",
+    channelName: "engineering",
+    installationId: "discord-guild",
+  });
+  assert.deepEqual(
+    {
+      interface: target.interface,
+      channelId: target.channelId,
+      channelName: target.channelName,
+      installationId: target.installationId,
+    },
+    {
+      interface: "discord",
+      channelId: "discord-channel",
+      channelName: "engineering",
+      installationId: "discord-guild",
+    },
+  );
+  assert.equal((await repository.listDeliveryTargets("discord")).length, 1);
+  assert.equal((await repository.listDeliveryTargets("webhook")).length, 0);
+  assert.equal(await repository.removeDeliveryTarget("discord", "discord-channel"), true);
+  assert.equal(await repository.removeDeliveryTarget("discord", "discord-channel"), false);
+  assert.equal((await repository.listDeliveryTargets("discord")).length, 0);
 });

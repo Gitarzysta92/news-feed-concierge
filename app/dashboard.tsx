@@ -23,6 +23,13 @@ interface DashboardPayload {
   channels: ChannelProfile[];
   profile: ChannelProfile;
   ranked: RankedDto[];
+  pagination: {
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+    unratedOnly: boolean;
+  };
   reactions: ReactionDefinition[];
   userReactions: Record<string, FeedbackReaction>;
   services: { ranking: string; llm: string; discord: string; ingestionRunning: boolean };
@@ -33,30 +40,51 @@ type RankedDto = Omit<RankedArticle, "article"> & {
   algorithm: RankingAlgorithmReference;
 };
 
+const PAGE_SIZE = 10;
+
 export function Dashboard() {
   const [data, setData] = useState<DashboardPayload | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [channel, setChannel] = useState({ id: "admin-preview", name: "dashboard-preview" });
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [ratingArticle, setRatingArticle] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [unratedOnly, setUnratedOnly] = useState(false);
+  const [refreshVersion, setRefreshVersion] = useState(0);
 
-  const load = useCallback(async (selected = channel, identity = user) => {
+  const load = useCallback(async (
+    selected: { id: string; name: string },
+    identity: User | null,
+    selectedPage: number,
+    showUnratedOnly: boolean,
+  ) => {
     if (!identity) return;
+    setLoading(true);
     try {
       const url = apiUrlWithQuery("/api/dashboard");
       url.searchParams.set("channelId", selected.id);
       url.searchParams.set("channelName", selected.name);
       url.searchParams.set("userId", identity.id);
+      url.searchParams.set("page", String(selectedPage));
+      url.searchParams.set("pageSize", String(PAGE_SIZE));
+      url.searchParams.set("unratedOnly", String(showUnratedOnly));
       const response = await fetch(url, { cache: "no-store" });
       if (!response.ok) throw new Error(`Dashboard API returned ${response.status}`);
       const payload = await response.json() as DashboardPayload;
+      if (payload.pagination.page > payload.pagination.totalPages) {
+        setPage(payload.pagination.totalPages);
+        return;
+      }
       setData(payload);
       setError(null);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Dashboard API is unavailable");
+    } finally {
+      setLoading(false);
     }
-  }, [channel, user]);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -74,9 +102,12 @@ export function Dashboard() {
   }, []);
 
   useEffect(() => {
-    const request = window.setTimeout(() => void load(), 0);
+    const request = window.setTimeout(
+      () => void load(channel, user, page, unratedOnly),
+      0,
+    );
     return () => window.clearTimeout(request);
-  }, [load]);
+  }, [channel, load, page, refreshVersion, unratedOnly, user]);
 
   const currentDate = useMemo(() => new Intl.DateTimeFormat("en", {
     weekday: "short",
@@ -90,7 +121,8 @@ export function Dashboard() {
     try {
       const response = await fetch(apiUrl("/api/ingestion"), { method: "POST" });
       if (!response.ok) throw new Error(`Ingestion failed with ${response.status}`);
-      await load();
+      setPage(1);
+      setRefreshVersion((current) => current + 1);
     } catch (ingestionError) {
       setError(ingestionError instanceof Error ? ingestionError.message : "Ingestion failed");
     } finally {
@@ -115,7 +147,20 @@ export function Dashboard() {
         }),
       });
       if (!response.ok) throw new Error(`Feedback failed with ${response.status}`);
-      await load();
+      const result = await response.json() as { profile: ChannelProfile; changed: boolean };
+      setData((current) => {
+        if (!current) return current;
+        const wasAlreadyRated = Boolean(current.userReactions[articleId]);
+        return {
+          ...current,
+          profile: result.profile,
+          stats: {
+            ...current.stats,
+            feedback: current.stats.feedback + (result.changed && !wasAlreadyRated ? 1 : 0),
+          },
+          userReactions: { ...current.userReactions, [articleId]: reaction },
+        };
+      });
     } catch (feedbackError) {
       setError(feedbackError instanceof Error ? feedbackError.message : "Feedback failed");
     } finally {
@@ -123,17 +168,24 @@ export function Dashboard() {
     }
   }
 
-  async function selectChannel(id: string) {
+  function selectChannel(id: string) {
     const selected = data?.channels.find((item) => item.id === id);
     if (!selected) return;
     const next = { id: selected.id, name: selected.name };
     setChannel(next);
-    await load(next, user);
+    setPage(1);
   }
 
   const stats = data?.stats;
   const latestRun = data?.runs[0];
   const systemHealthy = !error;
+  const pagination = data?.pagination;
+  const firstVisible = pagination && pagination.total > 0
+    ? (pagination.page - 1) * pagination.pageSize + 1
+    : 0;
+  const lastVisible = pagination
+    ? Math.min(pagination.total, pagination.page * pagination.pageSize)
+    : 0;
 
   return (
     <main>
@@ -192,30 +244,60 @@ export function Dashboard() {
         <section className="panel feedPanel" id="ranked">
           <div className="panelHeading">
             <div>
-              <p className="eyebrow">RANKED NOW</p>
-              <h2>What the concierge sees</h2>
+              <p className="eyebrow">LATEST ARTICLES</p>
+              <h2>Every article, scored for this channel</h2>
             </div>
             <label className="channelPicker">
               <span>CHANNEL</span>
-              <select value={channel.id} onChange={(event) => void selectChannel(event.target.value)}>
+              <select value={channel.id} onChange={(event) => selectChannel(event.target.value)}>
                 {(data?.channels ?? []).map((item) => <option key={item.id} value={item.id}>#{item.name}</option>)}
               </select>
             </label>
           </div>
 
+          <div className="articleBrowseToolbar">
+            <div>
+              <label className="unratedFilter">
+                <input
+                  type="checkbox"
+                  checked={unratedOnly}
+                  onChange={(event) => {
+                    setPage(1);
+                    setUnratedOnly(event.target.checked);
+                  }}
+                />
+                <span>SHOW UNRATED ONLY</span>
+              </label>
+              <small>A reaction stays in this snapshot; the next page fetch or refresh applies the filter.</small>
+            </div>
+            <button
+              className="refreshListButton"
+              type="button"
+              disabled={loading}
+              onClick={() => setRefreshVersion((current) => current + 1)}
+            >
+              {loading ? "Refreshing…" : "Refresh list ↻"}
+            </button>
+          </div>
+
           {!data && !error && <div className="emptyState">Reading the latest ranking state…</div>}
           {data && data.ranked.length === 0 && (
             <div className="emptyState">
-              <strong>No articles collected yet.</strong>
-              Run ingestion to fetch Hacker News and DEV Community, then extract their full text.
+              <strong>{unratedOnly ? "No unrated articles remain on this page." : "No articles collected yet."}</strong>
+              {unratedOnly
+                ? "Turn off the filter or refresh after new articles are collected."
+                : "Run ingestion to fetch Hacker News and DEV Community, then extract their full text."}
             </div>
           )}
-          {data?.ranked.slice(0, 6).map((item, index) => (
+          {data?.ranked.map((item, index) => (
             <article className="story" key={item.article.id}>
-              <div className="rank">{String(index + 1).padStart(2, "0")}</div>
+              <div className="rank">
+                {String((data.pagination.page - 1) * data.pagination.pageSize + index + 1).padStart(2, "0")}
+              </div>
               <div className="storyBody">
                 <div className="storyMeta">
                   <span>{item.article.sourceLabel.toUpperCase()}</span>
+                  <span>{relativeTime(item.article.publishedAt).toUpperCase()}</span>
                   <span>{item.article.contentStatus === "extracted" ? "FULL TEXT" : "SOURCE ONLY"}</span>
                   <span>{item.article.tags.length > 0 ? `TOPICS ${item.article.tags.slice(0, 3).join(" · ")}` : "NO TOPICS"}</span>
                   <span>{Math.round(item.finalScore * 100)}% FIT</span>
@@ -279,6 +361,32 @@ export function Dashboard() {
               </div>
             </article>
           ))}
+          {!!pagination && (
+            <nav className="articlePagination" aria-label="Article pages">
+              <span>
+                {pagination.total === 0
+                  ? "NO ARTICLES"
+                  : `${firstVisible}–${lastVisible} OF ${pagination.total} · NEWEST FIRST`}
+              </span>
+              <div>
+                <button
+                  type="button"
+                  disabled={loading || pagination.page <= 1}
+                  onClick={() => setPage((current) => Math.max(1, current - 1))}
+                >
+                  ← Previous
+                </button>
+                <b>PAGE {pagination.page} / {pagination.totalPages}</b>
+                <button
+                  type="button"
+                  disabled={loading || pagination.page >= pagination.totalPages}
+                  onClick={() => setPage((current) => Math.min(pagination.totalPages, current + 1))}
+                >
+                  Next →
+                </button>
+              </div>
+            </nav>
+          )}
         </section>
 
         <aside className="sideColumn" id="learning">

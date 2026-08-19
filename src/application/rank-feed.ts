@@ -1,5 +1,7 @@
 import type {
   Article,
+  ChannelProfile,
+  FeedbackInterface,
   LlmAssessment,
   ProcessingStage,
   RankedArticle,
@@ -15,6 +17,24 @@ export interface RankFeedOptions {
   onlyUndelivered?: boolean;
   deliveryInterface?: string;
   semanticMode?: "blocking" | "cached-only";
+}
+
+export interface LatestArticlePageOptions {
+  page: number;
+  pageSize: number;
+  semanticMode?: "blocking" | "cached-only";
+  unratedBy?: {
+    userId: string;
+    interface: FeedbackInterface;
+  };
+}
+
+export interface LatestArticlePage {
+  items: RankedArticle[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
 }
 
 export class RankFeed {
@@ -45,6 +65,67 @@ export class RankFeed {
           delivered: await this.repository.hasDelivery(channelId, article.id, options.deliveryInterface!),
         })))).filter((item) => !item.delivered).map((item) => item.article)
       : articles;
+
+    const ranked = await this.evaluateCandidates(
+      channelId,
+      channelName,
+      profile,
+      candidates,
+      recentlyDelivered,
+      cachedSemanticOnly,
+    );
+
+    return ranked.sort((left, right) => right.finalScore - left.finalScore).slice(0, limit);
+  }
+
+  async executeLatestPage(
+    channelId: string,
+    channelName: string,
+    options: LatestArticlePageOptions,
+  ): Promise<LatestArticlePage> {
+    const page = Math.max(1, options.page);
+    const pageSize = Math.max(1, options.pageSize);
+    const profile = await this.repository.ensureChannel(channelId, channelName);
+    const [articlePage, recentlyDelivered] = await Promise.all([
+      this.repository.listArticlePage({
+        limit: pageSize,
+        offset: (page - 1) * pageSize,
+        unratedBy: options.unratedBy
+          ? { channelId, userId: options.unratedBy.userId, interface: options.unratedBy.interface }
+          : undefined,
+      }),
+      this.repository.listRecentlyDeliveredArticles(channelId, 20),
+    ]);
+    const evaluated = await this.evaluateCandidates(
+      channelId,
+      channelName,
+      profile,
+      articlePage.articles,
+      recentlyDelivered,
+      options.semanticMode === "cached-only",
+    );
+    const byArticleId = new Map(evaluated.map((item) => [item.article.id, item]));
+
+    return {
+      items: articlePage.articles.flatMap((article) => {
+        const item = byArticleId.get(article.id);
+        return item ? [item] : [];
+      }),
+      page,
+      pageSize,
+      total: articlePage.total,
+      totalPages: Math.max(1, Math.ceil(articlePage.total / pageSize)),
+    };
+  }
+
+  private async evaluateCandidates(
+    channelId: string,
+    channelName: string,
+    profile: ChannelProfile,
+    candidates: Article[],
+    recentlyDelivered: Article[],
+    cachedSemanticOnly: boolean,
+  ): Promise<RankedArticle[]> {
 
     const context = { now: new Date(), recentlyDelivered };
     const algorithm = algorithmReference(this.algorithm);
@@ -146,7 +227,7 @@ export class RankFeed {
       };
     }));
 
-    return ranked.sort((left, right) => right.finalScore - left.finalScore).slice(0, limit);
+    return ranked;
   }
 }
 

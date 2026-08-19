@@ -2,7 +2,7 @@ import cron, { type ScheduledTask } from "node-cron";
 import type { DeliverFeed } from "../../application/deliver-feed.js";
 import type { IngestionCoordinator } from "../../application/ingestion-coordinator.js";
 import type { RankFeed } from "../../application/rank-feed.js";
-import type { DeliveryEdge } from "../../domain/ports.js";
+import type { ConciergeRepository, DeliveryEdge } from "../../domain/ports.js";
 
 export interface SchedulerDependencies {
   config: {
@@ -12,8 +12,8 @@ export interface SchedulerDependencies {
     serendipityThreshold: number;
     serendipityProbability: number;
     runIngestionOnStart: boolean;
-    channels: ReadonlyArray<{ id: string; name: string }>;
   };
+  repository: Pick<ConciergeRepository, "listDeliveryTargets">;
   ingestionCoordinator: Pick<IngestionCoordinator, "execute">;
   rankFeed: Pick<RankFeed, "execute">;
   deliverFeed: Pick<DeliverFeed, "execute">;
@@ -48,8 +48,9 @@ export class ConciergeScheduler {
     try {
       await this.dependencies.ingestionCoordinator.execute();
       if (!this.edge) return;
-      for (const channel of this.dependencies.config.channels) {
-        const [top] = await this.dependencies.rankFeed.execute(channel.id, channel.name, {
+      const targets = await this.dependencies.repository.listDeliveryTargets(this.edge.key);
+      for (const target of targets) {
+        const [top] = await this.dependencies.rankFeed.execute(target.channelId, target.channelName, {
           limit: 1,
           onlyUndelivered: true,
           deliveryInterface: this.edge.key,
@@ -57,8 +58,8 @@ export class ConciergeScheduler {
         const isExceptional = top && top.finalScore >= this.dependencies.config.serendipityThreshold;
         if (isExceptional && Math.random() <= this.dependencies.config.serendipityProbability) {
           await this.dependencies.deliverFeed.execute({
-            channelId: channel.id,
-            channelName: channel.name,
+            channelId: target.channelId,
+            channelName: target.channelName,
             edge: this.edge,
             reason: "serendipity",
             count: 1,
@@ -75,10 +76,11 @@ export class ConciergeScheduler {
     if (!this.edge || this.deliveryRunning) return;
     this.deliveryRunning = true;
     try {
-      for (const channel of this.dependencies.config.channels) {
+      const targets = await this.dependencies.repository.listDeliveryTargets(this.edge.key);
+      for (const target of targets) {
         await this.dependencies.deliverFeed.execute({
-          channelId: channel.id,
-          channelName: channel.name,
+          channelId: target.channelId,
+          channelName: target.channelName,
           edge: this.edge,
           reason: "scheduled",
           count: this.dependencies.config.deliveryCount,

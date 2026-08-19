@@ -8,6 +8,7 @@ import type {
   ChannelProfile,
   DashboardStats,
   Delivery,
+  DeliveryTarget,
   Feedback,
   IngestionRun,
   IncomingArticle,
@@ -16,7 +17,7 @@ import type {
   StoredEvaluation,
   User,
 } from "../../domain/model.js";
-import type { ConciergeRepository } from "../../domain/ports.js";
+import type { ArticlePageQuery, ConciergeRepository } from "../../domain/ports.js";
 
 type Row = Record<string, unknown>;
 
@@ -107,6 +108,15 @@ export class SqliteConciergeRepository implements ConciergeRepository {
         UNIQUE(channel_id, article_id, interface)
       );
 
+      CREATE TABLE IF NOT EXISTS delivery_targets (
+        interface TEXT NOT NULL,
+        channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+        installation_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY(interface, channel_id)
+      );
+
       CREATE TABLE IF NOT EXISTS ingestion_runs (
         id TEXT PRIMARY KEY,
         source TEXT NOT NULL,
@@ -119,16 +129,18 @@ export class SqliteConciergeRepository implements ConciergeRepository {
         finished_at TEXT
       );
 
-      CREATE INDEX IF NOT EXISTS idx_articles_published_at ON articles(published_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_articles_published_id ON articles(published_at DESC, id DESC);
       CREATE INDEX IF NOT EXISTS idx_evaluations_channel_score ON evaluations(channel_id, final_score DESC);
       CREATE INDEX IF NOT EXISTS idx_feedback_channel_updated ON feedback(channel_id, updated_at DESC);
       CREATE INDEX IF NOT EXISTS idx_feedback_user_channel ON feedback(actor_id, channel_id, updated_at DESC);
       CREATE INDEX IF NOT EXISTS idx_users_last_seen ON users(last_seen_at DESC);
       CREATE INDEX IF NOT EXISTS idx_deliveries_channel_date ON deliveries(channel_id, delivered_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_delivery_targets_interface ON delivery_targets(interface, created_at);
       CREATE UNIQUE INDEX IF NOT EXISTS idx_deliveries_message ON deliveries(external_message_id)
         WHERE external_message_id IS NOT NULL;
       CREATE INDEX IF NOT EXISTS idx_runs_started_at ON ingestion_runs(started_at DESC);
     `);
+    this.database.prepare("DROP INDEX IF EXISTS idx_articles_published_at").run();
     ensureColumn(this.database, "articles", "source_label", "TEXT NOT NULL DEFAULT ''");
     ensureColumn(this.database, "articles", "source_quality", "REAL NOT NULL DEFAULT 0.5");
     ensureColumn(this.database, "users", "name", "TEXT NOT NULL DEFAULT ''");
@@ -223,6 +235,46 @@ export class SqliteConciergeRepository implements ConciergeRepository {
   async listArticles(limit: number): Promise<Article[]> {
     const rows = this.database.prepare("SELECT * FROM articles ORDER BY published_at DESC LIMIT ?").all(limit) as Row[];
     return rows.map(articleFromRow);
+  }
+
+  async listArticlePage(query: ArticlePageQuery): Promise<{ articles: Article[]; total: number }> {
+    const limit = Math.max(1, query.limit);
+    const offset = Math.max(0, query.offset);
+    if (!query.unratedBy) {
+      const rows = this.database.prepare(`
+        SELECT * FROM articles
+        ORDER BY published_at DESC, id DESC
+        LIMIT ? OFFSET ?
+      `).all(limit, offset) as Row[];
+      const count = this.database.prepare("SELECT COUNT(*) AS total FROM articles").get() as Row;
+      return { articles: rows.map(articleFromRow), total: Number(count.total) };
+    }
+
+    const parameters = [
+      query.unratedBy.channelId,
+      query.unratedBy.userId,
+      query.unratedBy.interface,
+    ] as const;
+    const unratedPredicate = `
+      NOT EXISTS (
+        SELECT 1 FROM feedback f
+        WHERE f.article_id = a.id
+          AND f.channel_id = ?
+          AND f.actor_id = ?
+          AND f.interface = ?
+      )
+    `;
+    const rows = this.database.prepare(`
+      SELECT a.* FROM articles a
+      WHERE ${unratedPredicate}
+      ORDER BY a.published_at DESC, a.id DESC
+      LIMIT ? OFFSET ?
+    `).all(...parameters, limit, offset) as Row[];
+    const count = this.database.prepare(`
+      SELECT COUNT(*) AS total FROM articles a
+      WHERE ${unratedPredicate}
+    `).get(...parameters) as Row;
+    return { articles: rows.map(articleFromRow), total: Number(count.total) };
   }
 
   async listRecentlyDeliveredArticles(channelId: string, limit: number): Promise<Article[]> {
@@ -427,6 +479,48 @@ export class SqliteConciergeRepository implements ConciergeRepository {
     return row ? deliveryFromRow(row) : null;
   }
 
+  async upsertDeliveryTarget(
+    input: Parameters<ConciergeRepository["upsertDeliveryTarget"]>[0],
+  ): Promise<DeliveryTarget> {
+    await this.ensureChannel(input.channelId, input.channelName);
+    const now = new Date().toISOString();
+    this.database.prepare(`
+      INSERT INTO delivery_targets (
+        interface, channel_id, installation_id, created_at, updated_at
+      ) VALUES (
+        @interface, @channelId, @installationId, @createdAt, @updatedAt
+      )
+      ON CONFLICT(interface, channel_id) DO UPDATE SET
+        installation_id = excluded.installation_id,
+        updated_at = excluded.updated_at
+    `).run({ ...input, createdAt: now, updatedAt: now });
+    const row = this.database.prepare(`
+      SELECT dt.*, c.name AS channel_name
+      FROM delivery_targets dt
+      JOIN channels c ON c.id = dt.channel_id
+      WHERE dt.interface = ? AND dt.channel_id = ?
+    `).get(input.interface, input.channelId) as Row;
+    return deliveryTargetFromRow(row);
+  }
+
+  async removeDeliveryTarget(deliveryInterface: string, channelId: string): Promise<boolean> {
+    const result = this.database.prepare(`
+      DELETE FROM delivery_targets WHERE interface = ? AND channel_id = ?
+    `).run(deliveryInterface, channelId);
+    return result.changes > 0;
+  }
+
+  async listDeliveryTargets(deliveryInterface: string): Promise<DeliveryTarget[]> {
+    const rows = this.database.prepare(`
+      SELECT dt.*, c.name AS channel_name
+      FROM delivery_targets dt
+      JOIN channels c ON c.id = dt.channel_id
+      WHERE dt.interface = ?
+      ORDER BY dt.created_at, dt.channel_id
+    `).all(deliveryInterface) as Row[];
+    return rows.map(deliveryTargetFromRow);
+  }
+
   async startRun(source: string): Promise<IngestionRun> {
     const run: IngestionRun = {
       id: randomUUID(),
@@ -588,6 +682,17 @@ function deliveryFromRow(row: Row): Delivery {
     externalMessageId: row.external_message_id ? String(row.external_message_id) : null,
     reason: row.reason as Delivery["reason"],
     deliveredAt: String(row.delivered_at),
+  };
+}
+
+function deliveryTargetFromRow(row: Row): DeliveryTarget {
+  return {
+    interface: String(row.interface),
+    channelId: String(row.channel_id),
+    channelName: String(row.channel_name),
+    installationId: row.installation_id ? String(row.installation_id) : null,
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
   };
 }
 

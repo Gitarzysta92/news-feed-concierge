@@ -40,6 +40,11 @@ visitor's selected reactions, while another browser identity gets an independent
 User records also keep a persisted display name. `/users` provides the unauthenticated POC management surface for
 reviewing identities and assigning custom names; new anonymous identities receive a readable `Visitor <short-id>` name.
 
+The Learning article inbox pages through the complete corpus newest-first while retaining each article's channel score
+and processing trace. Visitors can show only articles they have not rated in that channel. Rating updates the selected
+reaction and channel profile in place; the current page remains a stable snapshot, and the filter is applied again on
+the next page fetch or explicit refresh.
+
 Every ranked article exposes a five-stage processing trace—collection, full-text extraction, base ranking, semantic evaluation, and finalization. Each stage is explicitly marked `completed`, `skipped`, or `failed`, with the concrete reason visible in the dashboard and API.
 
 `RANKING_ALGORITHM=interpretable-linear-v1` selects the base implementation. Ranking implementations are registered in `src/bootstrap/ranking-algorithm-registry.ts`; the application layer depends only on the `RankingAlgorithm` contract and its generic `RankingScore`.
@@ -69,16 +74,17 @@ The `/queue` page polls `GET /api/queue` once per second and displays real appli
 
 ## Discord
 
-Create a bot with slash-command and message/reaction access, invite it to the server, then set:
+Create a bot with slash-command and message/reaction access, invite it to the server, then set only its secret token:
 
 ```dotenv
 DISCORD_BOT_TOKEN=...
-DISCORD_APPLICATION_ID=...
-DISCORD_GUILD_ID=...
-DISCORD_CHANNELS=123456789:engineering,987654321:platform
 ```
 
-The bot registers `/news` and `/concierge-status`. It adds the four learning reactions to every delivered article.
+Guild IDs are discovered from the Discord Gateway when the bot is installed. The bot registers `/news`,
+`/concierge-status`, and `/concierge-delivery` separately in every installed server. After installation, a member with
+permission to manage the channel runs `/concierge-delivery enable` in each channel that should receive scheduled news;
+`/concierge-delivery disable` removes that destination. These channel selections are persisted in SQLite rather than
+deployment configuration. The bot adds the four learning reactions to every delivered article.
 
 ## Useful commands
 

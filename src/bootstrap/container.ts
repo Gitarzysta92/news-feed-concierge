@@ -22,7 +22,6 @@ export async function createContainer() {
     repository.updateSourceMetadata(source.key, source.label, source.quality)
   )));
   await repository.ensureChannel(config.adminChannel.id, config.adminChannel.name);
-  for (const channel of config.discord.channels) await repository.ensureChannel(channel.id, channel.name);
 
   const rankingAlgorithms = createDefaultRankingAlgorithmRegistry();
   const rankingAlgorithm = rankingAlgorithms.create(config.rankingAlgorithm);

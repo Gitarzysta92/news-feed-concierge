@@ -92,6 +92,15 @@ h2 { margin: 0; font-size: 19px; letter-spacing: -.025em; font-weight: 620; }
 .channelPicker { display: flex; align-items: center; gap: 10px; }
 .channelPicker > span { color: var(--muted); font: 700 9px/1 var(--font-geist-mono), monospace; letter-spacing: .1em; }
 .channelPicker select { min-width: 150px; padding: 9px 30px 9px 10px; border: 1px solid var(--line); border-radius: 0; background: transparent; color: var(--ink); font-size: 11px; cursor: pointer; }
+.articleBrowseToolbar { min-height: 66px; padding: 13px 24px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid var(--line); background: #f1f2ed; }
+.articleBrowseToolbar > div { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; }
+.articleBrowseToolbar small { color: var(--muted); font-size: 9px; line-height: 1.4; }
+.unratedFilter { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.unratedFilter input { width: 15px; height: 15px; margin: 0; accent-color: var(--ink); cursor: pointer; }
+.unratedFilter span { color: var(--ink); font: 700 9px/1 var(--font-geist-mono), monospace; letter-spacing: .08em; }
+.refreshListButton { flex: 0 0 auto; padding: 9px 11px; border: 1px solid var(--ink); background: transparent; color: var(--ink); font: 700 9px/1 var(--font-geist-mono), monospace; letter-spacing: .04em; text-transform: uppercase; cursor: pointer; }
+.refreshListButton:hover:not(:disabled) { background: var(--ink); color: white; }
+.refreshListButton:disabled { cursor: progress; opacity: .45; }
 .emptyState { min-height: 230px; padding: 48px 28px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 8px; color: var(--muted); font-size: 13px; }
 .emptyState strong { color: var(--ink); font-size: 18px; }
 .story { display: grid; grid-template-columns: 72px 1fr; border-bottom: 1px solid var(--line); }
@@ -135,6 +144,12 @@ h2 { margin: 0; font-size: 19px; letter-spacing: -.025em; font-weight: 620; }
 .reactions button:disabled { cursor: progress; opacity: .45; transform: none; }
 .score { color: var(--muted); font: 650 9px/1 var(--font-geist-mono), monospace; letter-spacing: .04em; }
 .score i { display: inline-block; width: 12px; height: 1px; margin: 0 6px 3px; background: var(--signal); }
+.articlePagination { min-height: 70px; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-top: 1px solid var(--line); background: #f1f2ed; }
+.articlePagination > span, .articlePagination b { color: var(--muted); font: 700 8px/1 var(--font-geist-mono), monospace; letter-spacing: .07em; }
+.articlePagination > div { display: flex; align-items: center; gap: 12px; }
+.articlePagination button { padding: 9px 11px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font: 650 9px/1 var(--font-geist-mono), monospace; cursor: pointer; }
+.articlePagination button:hover:not(:disabled) { border-color: var(--ink); background: var(--ink); color: white; }
+.articlePagination button:disabled { cursor: default; opacity: .35; }
 .sideColumn { display: flex; flex-direction: column; gap: 24px; }
 .learningPanel { padding-bottom: 20px; }
 .learningBadge { padding: 7px 9px; border: 1px solid var(--line); font: 700 9px/1 var(--font-geist-mono), monospace; letter-spacing: .08em; }
@@ -331,6 +346,13 @@ h2 { margin: 0; font-size: 19px; letter-spacing: -.025em; font-weight: 620; }
   .story { grid-template-columns: 48px 1fr; }
   .rank { padding: 24px 13px; }
   .storyFooter { align-items: flex-start; flex-direction: column; }
+  .feedPanel > .panelHeading, .articleBrowseToolbar, .articlePagination { align-items: flex-start; flex-direction: column; }
+  .channelPicker { width: 100%; justify-content: space-between; }
+  .channelPicker select { min-width: 0; width: 70%; }
+  .articleBrowseToolbar > div { align-items: flex-start; flex-direction: column; }
+  .refreshListButton { width: 100%; }
+  .articlePagination > div { width: 100%; justify-content: space-between; }
+  .articlePagination button { padding-left: 8px; padding-right: 8px; }
   .algorithmReference { align-items: flex-start; flex-direction: column; }
   .algorithmReference small { white-space: normal; }
   .processingTrace { grid-template-columns: 1fr; }

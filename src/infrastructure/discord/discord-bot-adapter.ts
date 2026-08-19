@@ -4,7 +4,9 @@ import {
   Events,
   GatewayIntentBits,
   Partials,
+  PermissionFlagsBits,
   SlashCommandBuilder,
+  type Guild,
   type Interaction,
   type MessageReaction,
   type PartialMessageReaction,
@@ -20,11 +22,13 @@ import type { ConciergeRepository, DeliveryEdge, LlmEvaluator } from "../../doma
 export interface DiscordBotDependencies {
   config: {
     token?: string;
-    guildId?: string;
   };
   deliverFeed: Pick<DeliverFeed, "execute">;
   submitFeedback: Pick<SubmitFeedback, "execute">;
-  repository: Pick<ConciergeRepository, "stats" | "findDeliveryByMessageId">;
+  repository: Pick<
+    ConciergeRepository,
+    "stats" | "findDeliveryByMessageId" | "upsertDeliveryTarget" | "removeDeliveryTarget"
+  >;
   llm: Pick<LlmEvaluator, "enabled">;
 }
 
@@ -42,16 +46,22 @@ export class DiscordBotAdapter implements DeliveryEdge {
   constructor(private readonly dependencies: DiscordBotDependencies) {
     this.client.on(Events.InteractionCreate, (interaction) => void this.onInteraction(interaction));
     this.client.on(Events.MessageReactionAdd, (reaction, user) => void this.onReaction(reaction, user));
+    this.client.on(Events.GuildCreate, (guild) => void this.onGuildInstalled(guild));
   }
 
   async start(): Promise<void> {
     const token = this.dependencies.config.token;
     if (!token) throw new Error("DISCORD_BOT_TOKEN is required when Discord is enabled");
-    const ready = new Promise<void>((resolve) => {
+    const ready = new Promise<void>((resolve, reject) => {
       this.client.once(Events.ClientReady, async (client) => {
-        await this.registerCommands();
-        console.log(`Discord edge connected as ${client.user.tag}`);
-        resolve();
+        try {
+          const guildIds = [...client.guilds.cache.keys()];
+          await Promise.all(guildIds.map((guildId) => this.registerCommands(guildId)));
+          console.log(`Discord edge connected as ${client.user.tag} in ${guildIds.length} guild(s)`);
+          resolve();
+        } catch (error) {
+          reject(error);
+        }
       });
     });
     await this.client.login(token);
@@ -85,7 +95,7 @@ export class DiscordBotAdapter implements DeliveryEdge {
     return message.id;
   }
 
-  private async registerCommands(): Promise<void> {
+  private async registerCommands(guildId: string): Promise<void> {
     const application = this.client.application;
     if (!application) throw new Error("Discord application was not available after login");
     const commands = [
@@ -100,10 +110,27 @@ export class DiscordBotAdapter implements DeliveryEdge {
       new SlashCommandBuilder()
         .setName("concierge-status")
         .setDescription("Show collection and learning status"),
+      new SlashCommandBuilder()
+        .setName("concierge-delivery")
+        .setDescription("Configure scheduled concierge delivery for this channel")
+        .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
+        .addSubcommand((command) => command
+          .setName("enable")
+          .setDescription("Enable scheduled article delivery in this channel"))
+        .addSubcommand((command) => command
+          .setName("disable")
+          .setDescription("Disable scheduled article delivery in this channel")),
     ].map((command) => command.toJSON());
-    const guildId = this.dependencies.config.guildId;
-    if (guildId) await application.commands.set(commands, guildId);
-    else await application.commands.set(commands);
+    await application.commands.set(commands, guildId);
+  }
+
+  private async onGuildInstalled(guild: Guild): Promise<void> {
+    try {
+      await this.registerCommands(guild.id);
+      console.log(`Registered concierge commands for Discord guild ${guild.name} (${guild.id})`);
+    } catch (error) {
+      console.error(`Discord command registration failed for guild ${guild.id}`, error);
+    }
   }
 
   private async onInteraction(interaction: Interaction) {
@@ -126,6 +153,7 @@ export class DiscordBotAdapter implements DeliveryEdge {
         await interaction.editReply(delivered.length
           ? `Delivered ${delivered.length} fresh ${delivered.length === 1 ? "article" : "articles"}.`
           : "Nothing fresh is waiting—this channel has already seen the current candidates.");
+        return;
       }
 
       if (interaction.commandName === "concierge-status") {
@@ -139,6 +167,38 @@ export class DiscordBotAdapter implements DeliveryEdge {
             `Delivered: **${stats.deliveries}**`,
             `LLM: **${this.dependencies.llm.enabled ? "enabled" : "disabled"}**`,
           ].join(" · "),
+        });
+        return;
+      }
+
+      if (interaction.commandName === "concierge-delivery") {
+        if (!interaction.guildId || !interaction.channel?.isSendable()) {
+          await interaction.reply({
+            ephemeral: true,
+            content: "Scheduled delivery can only be configured in a server text channel.",
+          });
+          return;
+        }
+        const action = interaction.options.getSubcommand();
+        if (action === "enable") {
+          await this.dependencies.repository.upsertDeliveryTarget({
+            interface: this.key,
+            channelId: interaction.channelId,
+            channelName,
+            installationId: interaction.guildId,
+          });
+          await interaction.reply({
+            ephemeral: true,
+            content: `Scheduled concierge delivery is now enabled in <#${interaction.channelId}>.`,
+          });
+          return;
+        }
+        const removed = await this.dependencies.repository.removeDeliveryTarget(this.key, interaction.channelId);
+        await interaction.reply({
+          ephemeral: true,
+          content: removed
+            ? `Scheduled concierge delivery is now disabled in <#${interaction.channelId}>.`
+            : `Scheduled concierge delivery was not enabled in <#${interaction.channelId}>.`,
         });
       }
     } catch (error) {

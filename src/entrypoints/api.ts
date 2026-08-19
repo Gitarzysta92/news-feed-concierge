@@ -73,12 +73,17 @@ export function createApi(container: AppContainer) {
       const channelId = String(request.query.channelId || container.config.adminChannel.id);
       const channelName = String(request.query.channelName || container.config.adminChannel.name);
       const userId = z.string().min(1).parse(request.query.userId);
+      const page = Math.max(1, Number(request.query.page) || 1);
+      const pageSize = Math.min(25, Math.max(1, Number(request.query.pageSize) || 10));
+      const unratedOnly = request.query.unratedOnly === "true";
       const user = await container.repository.ensureUser({ id: userId, kind: "anonymous" });
       // Ranking may regenerate evaluations after feedback invalidates the cache.
       // Complete it before reading statistics so the dashboard snapshot is consistent.
-      const ranked = await container.rankFeed.execute(channelId, channelName, {
-        limit: 12,
+      const articlePage = await container.rankFeed.executeLatestPage(channelId, channelName, {
+        page,
+        pageSize,
         semanticMode: "cached-only",
+        unratedBy: unratedOnly ? { userId: user.id, interface: "admin" } : undefined,
       });
       const [stats, runs, channels, profile, feedback] = await Promise.all([
         container.repository.stats(),
@@ -93,7 +98,14 @@ export function createApi(container: AppContainer) {
         runs,
         channels,
         profile,
-        ranked: ranked.map(toRankedDto),
+        ranked: articlePage.items.map(toRankedDto),
+        pagination: {
+          page: articlePage.page,
+          pageSize: articlePage.pageSize,
+          total: articlePage.total,
+          totalPages: articlePage.totalPages,
+          unratedOnly,
+        },
         reactions: REACTIONS,
         userReactions: Object.fromEntries(feedback.map((item) => [item.articleId, item.reaction])),
         services: {

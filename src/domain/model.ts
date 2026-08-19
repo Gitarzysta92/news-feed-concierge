@@ -160,6 +160,15 @@ export interface Delivery {
   deliveredAt: string;
 }
 
+export interface DeliveryTarget {
+  interface: string;
+  channelId: string;
+  channelName: string;
+  installationId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface IngestionRun {
   id: string;
   source: string;
