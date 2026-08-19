@@ -13,6 +13,7 @@ WORKLOAD_IDENTITY_POOL_ID="${WORKLOAD_IDENTITY_POOL_ID:-news-feed-concierge}"
 WORKLOAD_IDENTITY_PROVIDER_ID="${WORKLOAD_IDENTITY_PROVIDER_ID:-github}"
 CODEX_GATEWAY_SECRET="${CODEX_GATEWAY_SECRET:-codex-gateway-api-token}"
 CODEX_GATEWAY_SECRET_SOURCE_PROJECT="${CODEX_GATEWAY_SECRET_SOURCE_PROJECT:-}"
+DISCORD_BOT_SECRET="discord-bot-token"
 
 DEPLOYER_SERVICE_ACCOUNT="${DEPLOYER_SERVICE_ACCOUNT_ID}@${GCP_PROJECT_ID}.iam.gserviceaccount.com"
 RUNTIME_SERVICE_ACCOUNT="${RUNTIME_SERVICE_ACCOUNT_ID}@${GCP_PROJECT_ID}.iam.gserviceaccount.com"
@@ -82,8 +83,22 @@ if ! gcloud secrets describe "${CODEX_GATEWAY_SECRET}" >/dev/null 2>&1; then
   gcloud secrets create "${CODEX_GATEWAY_SECRET}" --replication-policy=automatic
 fi
 
+if ! gcloud secrets describe "${DISCORD_BOT_SECRET}" >/dev/null 2>&1; then
+  gcloud secrets create "${DISCORD_BOT_SECRET}" --replication-policy=automatic
+fi
+
 retry gcloud secrets add-iam-policy-binding "${CODEX_GATEWAY_SECRET}" \
   --member="serviceAccount:${RUNTIME_SERVICE_ACCOUNT}" \
+  --role=roles/secretmanager.secretAccessor \
+  --condition=None >/dev/null
+
+retry gcloud secrets add-iam-policy-binding "${DISCORD_BOT_SECRET}" \
+  --member="serviceAccount:${RUNTIME_SERVICE_ACCOUNT}" \
+  --role=roles/secretmanager.secretAccessor \
+  --condition=None >/dev/null
+
+retry gcloud secrets add-iam-policy-binding "${DISCORD_BOT_SECRET}" \
+  --member="serviceAccount:${DEPLOYER_SERVICE_ACCOUNT}" \
   --role=roles/secretmanager.secretAccessor \
   --condition=None >/dev/null
 
@@ -102,6 +117,12 @@ if [[ -z "$(gcloud secrets versions list "${CODEX_GATEWAY_SECRET}" --filter='sta
       --secret="${CODEX_GATEWAY_SECRET}" | \
       gcloud secrets versions add "${CODEX_GATEWAY_SECRET}" --data-file=- >/dev/null
   fi
+fi
+
+if [[ -z "$(gcloud secrets versions list "${DISCORD_BOT_SECRET}" --filter='state=ENABLED' --limit=1 --format='value(name)' 2>/dev/null)" ]] \
+  && [[ -n "${DISCORD_BOT_TOKEN:-}" ]]; then
+  printf '%s' "${DISCORD_BOT_TOKEN}" | \
+    gcloud secrets versions add "${DISCORD_BOT_SECRET}" --data-file=- >/dev/null
 fi
 
 if ! gcloud iam workload-identity-pools describe "${WORKLOAD_IDENTITY_POOL_ID}" \
@@ -134,6 +155,12 @@ retry gcloud iam service-accounts add-iam-policy-binding "${DEPLOYER_SERVICE_ACC
 if [[ -z "$(gcloud secrets versions list "${CODEX_GATEWAY_SECRET}" --filter='state=ENABLED' --limit=1 --format='value(name)' 2>/dev/null)" ]]; then
   echo "Warning: ${CODEX_GATEWAY_SECRET} has no enabled version." >&2
   echo "Set CODEX_GATEWAY_API_TOKEN and run this script again before deploying." >&2
+fi
+
+
+if [[ -z "$(gcloud secrets versions list "${DISCORD_BOT_SECRET}" --filter='state=ENABLED' --limit=1 --format='value(name)' 2>/dev/null)" ]]; then
+  echo "Warning: ${DISCORD_BOT_SECRET} has no enabled version." >&2
+  echo "Set DISCORD_BOT_TOKEN and run this script again before deploying." >&2
 fi
 
 cat <<EOF
