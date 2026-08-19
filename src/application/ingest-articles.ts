@@ -1,5 +1,5 @@
 import type { ContentExtractor, ContentSource, ConciergeRepository } from "../domain/ports.js";
-import { inferTags } from "../domain/tag-inference.js";
+import { inferArticleTags } from "../domain/tag-inference.js";
 import type { ActionQueue } from "./action-queue.js";
 
 export interface IngestionSummary {
@@ -56,16 +56,32 @@ export class IngestArticles {
             sourceQuality: source.quality,
             content: item.sourceContent,
             contentStatus: item.sourceContent ? "source-only" : "failed",
+            tags: inferArticleTags(item.title, `${item.summary} ${item.sourceContent}`, item.tags),
           });
           if (initial.inserted) inserted += 1;
           if (initial.article.contentStatus === "extracted") {
+            const tags = inferArticleTags(
+              initial.article.title,
+              `${initial.article.summary} ${initial.article.content.slice(0, 4_000)}`,
+              initial.article.tags,
+            );
+            if (!sameTags(tags, initial.article.tags)) {
+              const { id, fetchedAt, ...stored } = initial.article;
+              void id;
+              void fetchedAt;
+              await this.repository.upsertArticle({ ...stored, tags });
+            }
             action?.complete("Full text already stored; no extraction needed");
             return;
           }
 
           try {
             const full = await this.extractor.extract(item.url);
-            const tags = inferTags(`${item.title} ${full.description ?? item.summary} ${full.text}`, item.tags);
+            const tags = inferArticleTags(
+              item.title,
+              `${full.description ?? item.summary} ${full.text.slice(0, 4_000)}`,
+              item.tags,
+            );
             await this.repository.upsertArticle({
               ...item,
               source: source.key,
@@ -107,6 +123,10 @@ export class IngestArticles {
       throw error;
     }
   }
+}
+
+function sameTags(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((tag, index) => tag === right[index]);
 }
 
 async function mapWithConcurrency<T>(items: T[], concurrency: number, work: (item: T) => Promise<void>): Promise<void> {

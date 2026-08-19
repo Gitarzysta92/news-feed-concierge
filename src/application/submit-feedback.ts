@@ -2,11 +2,13 @@ import { reactionDefinition } from "../domain/reactions.js";
 import type { FeedbackInterface, FeedbackReaction } from "../domain/model.js";
 import type { ConciergeRepository, RankingAlgorithm } from "../domain/ports.js";
 import type { ActionQueue } from "./action-queue.js";
+import type { RebuildChannelProfile } from "./rebuild-channel-profile.js";
 
 export class SubmitFeedback {
   constructor(
     private readonly repository: ConciergeRepository,
     private readonly algorithm: RankingAlgorithm,
+    private readonly rebuildProfile: RebuildChannelProfile,
     private readonly actions?: ActionQueue,
   ) {}
 
@@ -21,10 +23,9 @@ export class SubmitFeedback {
   }) {
     const definition = reactionDefinition(input.reaction);
     if (!definition) throw new Error(`Unsupported reaction: ${input.reaction}`);
-    const [article, profile, recent] = await Promise.all([
+    const [article, profile] = await Promise.all([
       this.repository.findArticle(input.articleId),
       this.repository.ensureChannel(input.channelId, input.channelName),
-      this.repository.listRecentlyDeliveredArticles(input.channelId, 20),
       this.repository.ensureUser({
         id: input.userId,
         name: input.userName,
@@ -54,12 +55,9 @@ export class SubmitFeedback {
         return { feedback: persisted.feedback, profile, changed: false };
       }
 
-      const base = this.algorithm.score(article, profile, { now: new Date(), recentlyDelivered: recent });
-      const learned = this.algorithm.learn(profile, article, base, definition.target);
-      await this.repository.saveChannel(learned);
-      await this.repository.invalidateEvaluations(input.channelId);
-      action?.complete(`Profile advanced from v${profile.version} to v${learned.version}`);
-      return { feedback: persisted.feedback, profile: learned, changed: true };
+      const rebuilt = await this.rebuildProfile.execute(input.channelId, input.channelName);
+      action?.complete(`Profile rebuilt from ${rebuilt.signalCount} current signals · v${profile.version} → v${rebuilt.profile.version}`);
+      return { feedback: persisted.feedback, profile: rebuilt.profile, changed: true };
     } catch (error) {
       action?.fail(error, "Feedback learning failed");
       throw error;

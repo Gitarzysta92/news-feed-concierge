@@ -29,6 +29,11 @@ The hybrid ranker works in this order:
 3. The final score blends base and semantic scores using `LLM_WEIGHT`.
 4. 👍, 🔥, 👎, and 💤 update the same channel profile whether they arrive from Discord or the dashboard.
 
+Article topics are derived from source tags plus bounded title/content classification, with meaningful title keywords as
+a fallback. Repeated ingestion preserves topics inferred from full text. Whenever feedback changes, the channel profile
+is rebuilt from the current reaction records, so live affinities represent present feedback instead of accumulating
+superseded reaction edits.
+
 Dashboard visitors receive an anonymous user record on their first visit without a sign-up step. Only its plain ID is
 kept in browser storage; SQLite remains authoritative for the user and reaction records. Reloading restores that
 visitor's selected reactions, while another browser identity gets an independent set of choices.

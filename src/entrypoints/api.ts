@@ -111,9 +111,10 @@ export function createApi(container: AppContainer) {
   app.get("/api/algorithms", async (request, response, next) => {
     try {
       const channelId = String(request.query.channelId || container.config.adminChannel.id);
-      const [channels, profile] = await Promise.all([
+      const [channels, profile, feedback] = await Promise.all([
         container.repository.listChannels(),
         container.repository.findChannel(channelId),
+        container.repository.listChannelFeedback(channelId),
       ]);
       if (!profile) {
         response.status(404).json({ error: `Channel not found: ${channelId}` });
@@ -131,6 +132,7 @@ export function createApi(container: AppContainer) {
         liveState: {
           algorithmId: container.rankingAlgorithm.name,
           channel: { id: profile.id, name: profile.name },
+          feedbackSignals: feedback.length,
           ...container.rankingAlgorithm.inspect(profile),
         },
       });

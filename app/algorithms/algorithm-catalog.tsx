@@ -16,6 +16,7 @@ interface AlgorithmCatalogPayload {
   liveState: RankingAlgorithmLiveState & {
     algorithmId: string;
     channel: { id: string; name: string };
+    feedbackSignals: number;
   };
 }
 
@@ -122,7 +123,7 @@ export function AlgorithmCatalog() {
                         <p className="eyebrow"><i /> LIVE PARAMETERS</p>
                         <h3>#{data.liveState.channel.name} · profile v{data.liveState.revision}</h3>
                         <small>
-                          Updated {relativeTime(data.liveState.updatedAt)} · refreshes every 5s
+                          {data.liveState.feedbackSignals} current feedback signals · updated {relativeTime(data.liveState.updatedAt)} · refreshes every 5s
                           {syncing ? " · syncing…" : ""}
                         </small>
                       </div>
@@ -144,7 +145,11 @@ export function AlgorithmCatalog() {
                             <p>{group.description}</p>
                           </div>
                           {group.parameters.length === 0 && (
-                            <div className="parameterEmpty">No learned values yet. Reactions will populate this group.</div>
+                            <div className="parameterEmpty">
+                              {group.key === "topic-affinities" && data.liveState.feedbackSignals > 0
+                                ? "Rated articles have no usable topics yet. Re-ingest or rate a topic-labelled article."
+                                : "No learned values yet. Reactions will populate this group."}
+                            </div>
                           )}
                           {group.parameters.map((parameter) => (
                             <ParameterRow parameter={parameter} key={parameter.key} />

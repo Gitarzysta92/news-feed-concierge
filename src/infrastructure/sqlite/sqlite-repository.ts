@@ -183,7 +183,9 @@ export class SqliteConciergeRepository implements ConciergeRepository {
           WHEN excluded.content_status = 'extracted' OR articles.content_status != 'extracted'
           THEN excluded.content_status ELSE articles.content_status END,
         author = excluded.author,
-        tags_json = excluded.tags_json,
+        tags_json = CASE
+          WHEN excluded.content_status = 'extracted' OR articles.content_status != 'extracted'
+          THEN excluded.tags_json ELSE articles.tags_json END,
         image_url = COALESCE(excluded.image_url, articles.image_url),
         popularity = excluded.popularity,
         published_at = excluded.published_at,
@@ -319,6 +321,15 @@ export class SqliteConciergeRepository implements ConciergeRepository {
           WHERE channel_id = ? AND actor_id = ?
           ORDER BY updated_at DESC
         `).all(channelId, userId) as Row[];
+    return rows.map(feedbackFromRow);
+  }
+
+  async listChannelFeedback(channelId: string): Promise<Feedback[]> {
+    const rows = this.database.prepare(`
+      SELECT * FROM feedback
+      WHERE channel_id = ?
+      ORDER BY updated_at, id
+    `).all(channelId) as Row[];
     return rows.map(feedbackFromRow);
   }
 

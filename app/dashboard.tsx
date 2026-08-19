@@ -217,6 +217,7 @@ export function Dashboard() {
                 <div className="storyMeta">
                   <span>{item.article.sourceLabel.toUpperCase()}</span>
                   <span>{item.article.contentStatus === "extracted" ? "FULL TEXT" : "SOURCE ONLY"}</span>
+                  <span>{item.article.tags.length > 0 ? `TOPICS ${item.article.tags.slice(0, 3).join(" · ")}` : "NO TOPICS"}</span>
                   <span>{Math.round(item.finalScore * 100)}% FIT</span>
                 </div>
                 <h3><a href={item.article.url} target="_blank" rel="noreferrer">{item.article.title}</a></h3>

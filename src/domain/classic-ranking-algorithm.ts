@@ -19,7 +19,7 @@ export class ClassicRankingAlgorithm implements RankingAlgorithm {
     version: "1.0.0",
     summary: "A transparent weighted ranker that learns each channel's taste from reactions.",
     description: "Scores every article with a normalized weighted sum. Every feature and contribution remains inspectable, while the optional semantic evaluator can refine—but never replace—the base result.",
-    learningStrategy: "Online supervised updates move feature weights and topic affinities toward the reaction target after every changed reaction. Learning is isolated per channel and creates a new profile version.",
+    learningStrategy: "Feature weights calibrate toward the reaction target, while topic affinities follow reaction polarity directly: positive reactions promote the article's topics and negative reactions reduce them. Learning is isolated per channel.",
     capabilities: [
       "Explainable feature contributions",
       "Per-channel online learning",
@@ -116,9 +116,10 @@ export class ClassicRankingAlgorithm implements RankingAlgorithm {
     }
 
     const tagAffinities = { ...profile.tagAffinities };
+    const topicDelta = LEARNING_RATE * (clamp(target) - 0.5);
     for (const tag of article.tags) {
       const key = tag.toLowerCase();
-      tagAffinities[key] = clampRange((tagAffinities[key] ?? 0) + LEARNING_RATE * error, -1, 1);
+      tagAffinities[key] = clampRange((tagAffinities[key] ?? 0) + topicDelta, -1, 1);
     }
 
     return {

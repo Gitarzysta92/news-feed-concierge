@@ -4,6 +4,7 @@ import { RankFeed } from "../application/rank-feed.js";
 import { SubmitFeedback } from "../application/submit-feedback.js";
 import { DeliverFeed } from "../application/deliver-feed.js";
 import { ActionQueue } from "../application/action-queue.js";
+import { RebuildChannelProfile } from "../application/rebuild-channel-profile.js";
 import type { LlmEvaluator } from "../domain/ports.js";
 import { config } from "../config.js";
 import { OpenAiArticleEvaluator, DisabledLlmEvaluator } from "../infrastructure/llm/openai-article-evaluator.js";
@@ -25,6 +26,10 @@ export async function createContainer() {
 
   const rankingAlgorithms = createDefaultRankingAlgorithmRegistry();
   const rankingAlgorithm = rankingAlgorithms.create(config.rankingAlgorithm);
+  const rebuildProfile = new RebuildChannelProfile(repository, rankingAlgorithm);
+  for (const channel of await repository.listChannels()) {
+    await rebuildProfile.execute(channel.id, channel.name);
+  }
   const llm: LlmEvaluator = createLlmEvaluator();
   const actionQueue = new ActionQueue();
   const ingestion = new IngestArticles(
@@ -44,7 +49,7 @@ export async function createContainer() {
     config.llmCandidateLimit,
     actionQueue,
   );
-  const submitFeedback = new SubmitFeedback(repository, rankingAlgorithm, actionQueue);
+  const submitFeedback = new SubmitFeedback(repository, rankingAlgorithm, rebuildProfile, actionQueue);
   const deliverFeed = new DeliverFeed(repository, rankFeed, actionQueue);
 
   return {

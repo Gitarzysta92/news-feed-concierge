@@ -78,6 +78,7 @@ export interface ConciergeRepository {
   listUsers(limit: number): Promise<User[]>;
   updateUserName(id: string, name: string): Promise<User>;
   listUserFeedback(channelId: string, userId: string, feedbackInterface?: FeedbackInterface): Promise<Feedback[]>;
+  listChannelFeedback(channelId: string): Promise<Feedback[]>;
 
   findEvaluation(articleId: string, channelId: string, profileVersion: number): Promise<StoredEvaluation | null>;
   saveEvaluation(evaluation: StoredEvaluation): Promise<void>;
