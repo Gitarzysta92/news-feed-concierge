@@ -106,6 +106,7 @@ jobs:
           secrets_update_strategy: overwrite
           secrets: |
             CODEX_GATEWAY_API_TOKEN=${{ vars.GCP_CODEX_GATEWAY_SECRET }}:latest
+            DISCORD_BOT_TOKEN=discord-bot-token:latest
           timeout: 5m
           flags: >-
             --allow-unauthenticated
@@ -115,16 +116,19 @@ jobs:
             --cpu=1
             --memory=1Gi
             --concurrency=1
-            --min=0
+            --min=1
             --max=1
-            --cpu-throttling
+            --no-cpu-throttling
             --no-session-affinity
             --service-account=${{ env.RUNTIME_SERVICE_ACCOUNT }}
 
       - name: Verify deployment
         env:
           SERVICE_URL: ${{ steps.deploy.outputs.url }}
-        run: curl --fail --show-error --silent --retry 8 --retry-all-errors --retry-delay 5 "${SERVICE_URL}/health"
+        run: |
+          health="$(curl --fail --show-error --silent --retry 8 --retry-all-errors --retry-delay 5 "${SERVICE_URL}/health")"
+          echo "${health}"
+          jq --exit-status '.status == "ok" and .discordEnabled == true' <<<"${health}" >/dev/null
 
       - name: Publish service URL
         run: echo "### Cloud Run deployment"$'\n'"${{ steps.deploy.outputs.url }}" >> "${GITHUB_STEP_SUMMARY}"

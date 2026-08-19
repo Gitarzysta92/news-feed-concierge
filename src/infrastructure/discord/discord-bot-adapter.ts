@@ -3,6 +3,7 @@ import {
   EmbedBuilder,
   Events,
   GatewayIntentBits,
+  MessageFlags,
   Partials,
   PermissionFlagsBits,
   SlashCommandBuilder,
@@ -18,6 +19,14 @@ import type { SubmitFeedback } from "../../application/submit-feedback.js";
 import type { RankedArticle, DeliveryReason } from "../../domain/model.js";
 import { REACTIONS, reactionDefinition } from "../../domain/reactions.js";
 import type { ConciergeRepository, DeliveryEdge, LlmEvaluator } from "../../domain/ports.js";
+
+const PUBLISH_PERMISSIONS = [
+  { flag: PermissionFlagsBits.ViewChannel, label: "View Channel" },
+  { flag: PermissionFlagsBits.SendMessages, label: "Send Messages" },
+  { flag: PermissionFlagsBits.EmbedLinks, label: "Embed Links" },
+  { flag: PermissionFlagsBits.AddReactions, label: "Add Reactions" },
+  { flag: PermissionFlagsBits.ReadMessageHistory, label: "Read Message History" },
+] as const;
 
 export interface DiscordBotDependencies {
   config: {
@@ -141,7 +150,18 @@ export class DiscordBotAdapter implements DeliveryEdge {
 
     try {
       if (interaction.commandName === "news") {
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        const missingPermissions = interaction.appPermissions
+          ? PUBLISH_PERMISSIONS
+              .filter(({ flag }) => !interaction.appPermissions?.has(flag))
+              .map(({ label }) => label)
+          : [];
+        if (missingPermissions.length > 0) {
+          await interaction.editReply(
+            `I can't publish in <#${interaction.channelId}>. Grant the bot: **${missingPermissions.join(", ")}**.`,
+          );
+          return;
+        }
         const count = interaction.options.getInteger("count") ?? 1;
         const delivered = await this.dependencies.deliverFeed.execute({
           channelId: interaction.channelId,
@@ -159,7 +179,7 @@ export class DiscordBotAdapter implements DeliveryEdge {
       if (interaction.commandName === "concierge-status") {
         const stats = await this.dependencies.repository.stats();
         await interaction.reply({
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
           content: [
             `Collected: **${stats.articles}**`,
             `Full text: **${stats.extracted}**`,
@@ -174,7 +194,7 @@ export class DiscordBotAdapter implements DeliveryEdge {
       if (interaction.commandName === "concierge-delivery") {
         if (!interaction.guildId || !interaction.channel?.isSendable()) {
           await interaction.reply({
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
             content: "Scheduled delivery can only be configured in a server text channel.",
           });
           return;
@@ -188,14 +208,14 @@ export class DiscordBotAdapter implements DeliveryEdge {
             installationId: interaction.guildId,
           });
           await interaction.reply({
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
             content: `Scheduled concierge delivery is now enabled in <#${interaction.channelId}>.`,
           });
           return;
         }
         const removed = await this.dependencies.repository.removeDeliveryTarget(this.key, interaction.channelId);
         await interaction.reply({
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
           content: removed
             ? `Scheduled concierge delivery is now disabled in <#${interaction.channelId}>.`
             : `Scheduled concierge delivery was not enabled in <#${interaction.channelId}>.`,
@@ -205,7 +225,7 @@ export class DiscordBotAdapter implements DeliveryEdge {
       console.error("Discord command failed", error);
       const message = "The concierge hit a temporary error. Please try again shortly.";
       if (interaction.deferred || interaction.replied) await interaction.editReply(message);
-      else await interaction.reply({ content: message, ephemeral: true });
+      else await interaction.reply({ content: message, flags: MessageFlags.Ephemeral });
     }
   }
 

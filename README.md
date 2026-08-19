@@ -107,26 +107,28 @@ health endpoints go to Express; application pages and assets go to Vinext.
 
 This POC intentionally keeps SQLite at
 `/tmp/news-feed-concierge/concierge.sqlite`. Cloud Run is configured with a
-service-level maximum of one instance, a minimum of zero, request-based CPU,
-and concurrency one. The database is disposable: a new instance or revision
-starts with an empty database.
+service-level maximum and minimum of one instance, instance-based CPU, and
+concurrency one so the Discord Gateway connection remains alive. The database
+is disposable: a new instance or revision starts with an empty database.
 
 The GitHub workflow in `.github/workflows/deploy-cloud-run.yml` builds the
 container, pushes it to Artifact Registry, and deploys it using GitHub OIDC and
 Google Workload Identity Federation. It does not use a service-account JSON
-key. The Codex gateway bearer token stays in Google Secret Manager under
-`codex-gateway-api-token` and is attached to the Cloud Run revision at runtime.
+key. The Codex gateway bearer token and Discord bot token stay in Google Secret
+Manager under `codex-gateway-api-token` and `discord-bot-token`; both are
+attached to the Cloud Run revision at runtime.
 
 Bootstrap the Google resources after authenticating the Google Cloud CLI:
 
 ```bash
 export GCP_PROJECT_ID=your-project-id
 export CODEX_GATEWAY_API_TOKEN=your-token
+export DISCORD_BOT_TOKEN=your-discord-token
 ./scripts/bootstrap-gcp.sh
 ```
 
 The script prints the non-secret variables that must be added to the GitHub
-`production` environment. Scheduled `node-cron` work only runs while an
-instance is active because the service scales to zero. Discord is disabled
-unless its credentials are supplied separately; its long-running gateway
-connection is not reliable with this scale-to-zero configuration.
+`production` environment. Production keeps one instance active with
+instance-based CPU allocation so the Discord Gateway connection and scheduled
+`node-cron` work remain alive. This has a continuous Cloud Run cost even while
+the HTTP application is idle.
