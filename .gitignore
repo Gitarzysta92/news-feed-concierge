@@ -41,3 +41,6 @@ yarn-error.log*
 /outputs/
 /work/
 *.tsbuildinfo
+
+# google-github-actions/auth temporary credentials
+gha-creds-*.json

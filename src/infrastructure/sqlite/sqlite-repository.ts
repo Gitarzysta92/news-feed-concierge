@@ -14,6 +14,7 @@ import type {
   LlmAssessment,
   RankingScore,
   StoredEvaluation,
+  User,
 } from "../../domain/model.js";
 import type { ConciergeRepository } from "../../domain/ports.js";
 
@@ -59,6 +60,14 @@ export class SqliteConciergeRepository implements ConciergeRepository {
         tag_affinities_json TEXT NOT NULL,
         version INTEGER NOT NULL,
         updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS evaluations (
@@ -113,6 +122,8 @@ export class SqliteConciergeRepository implements ConciergeRepository {
       CREATE INDEX IF NOT EXISTS idx_articles_published_at ON articles(published_at DESC);
       CREATE INDEX IF NOT EXISTS idx_evaluations_channel_score ON evaluations(channel_id, final_score DESC);
       CREATE INDEX IF NOT EXISTS idx_feedback_channel_updated ON feedback(channel_id, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_feedback_user_channel ON feedback(actor_id, channel_id, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_users_last_seen ON users(last_seen_at DESC);
       CREATE INDEX IF NOT EXISTS idx_deliveries_channel_date ON deliveries(channel_id, delivered_at DESC);
       CREATE UNIQUE INDEX IF NOT EXISTS idx_deliveries_message ON deliveries(external_message_id)
         WHERE external_message_id IS NOT NULL;
@@ -120,6 +131,7 @@ export class SqliteConciergeRepository implements ConciergeRepository {
     `);
     ensureColumn(this.database, "articles", "source_label", "TEXT NOT NULL DEFAULT ''");
     ensureColumn(this.database, "articles", "source_quality", "REAL NOT NULL DEFAULT 0.5");
+    ensureColumn(this.database, "users", "name", "TEXT NOT NULL DEFAULT ''");
     ensureColumn(
       this.database,
       "evaluations",
@@ -127,6 +139,19 @@ export class SqliteConciergeRepository implements ConciergeRepository {
       "TEXT NOT NULL DEFAULT 'interpretable-linear-v1'",
     );
     this.database.prepare("UPDATE articles SET source_label = source WHERE source_label = ''").run();
+    this.database.prepare(`
+      INSERT OR IGNORE INTO users (id, kind, created_at, last_seen_at)
+      SELECT actor_id,
+        CASE WHEN interface = 'discord' THEN 'discord' ELSE 'legacy' END,
+        MIN(created_at), MAX(updated_at)
+      FROM feedback
+      GROUP BY actor_id
+    `).run();
+    const unnamedUsers = this.database.prepare("SELECT id, kind FROM users WHERE name = ''").all() as Row[];
+    const nameUser = this.database.prepare("UPDATE users SET name = ? WHERE id = ?");
+    for (const user of unnamedUsers) {
+      nameUser.run(defaultUserName(String(user.id), user.kind as User["kind"]), String(user.id));
+    }
     this.database.pragma("optimize");
   }
 
@@ -249,6 +274,54 @@ export class SqliteConciergeRepository implements ConciergeRepository {
     });
   }
 
+  async ensureUser(input: Parameters<ConciergeRepository["ensureUser"]>[0]): Promise<User> {
+    const id = input.id ?? randomUUID();
+    const name = input.name?.trim() || defaultUserName(id, input.kind);
+    const now = new Date().toISOString();
+    this.database.prepare(`
+      INSERT INTO users (id, name, kind, created_at, last_seen_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET last_seen_at = excluded.last_seen_at
+    `).run(id, name, input.kind, now, now);
+    const row = this.database.prepare("SELECT * FROM users WHERE id = ?").get(id) as Row;
+    return userFromRow(row);
+  }
+
+  async listUsers(limit: number): Promise<User[]> {
+    const rows = this.database.prepare(`
+      SELECT * FROM users ORDER BY last_seen_at DESC LIMIT ?
+    `).all(limit) as Row[];
+    return rows.map(userFromRow);
+  }
+
+  async updateUserName(id: string, name: string): Promise<User> {
+    const normalized = name.trim();
+    if (normalized.length < 1 || normalized.length > 60) throw new Error("User name must contain 1 to 60 characters");
+    const result = this.database.prepare("UPDATE users SET name = ? WHERE id = ?").run(normalized, id);
+    if (result.changes === 0) throw new Error(`User not found: ${id}`);
+    const row = this.database.prepare("SELECT * FROM users WHERE id = ?").get(id) as Row;
+    return userFromRow(row);
+  }
+
+  async listUserFeedback(
+    channelId: string,
+    userId: string,
+    feedbackInterface?: string,
+  ): Promise<Feedback[]> {
+    const rows = feedbackInterface
+      ? this.database.prepare(`
+          SELECT * FROM feedback
+          WHERE channel_id = ? AND actor_id = ? AND interface = ?
+          ORDER BY updated_at DESC
+        `).all(channelId, userId, feedbackInterface) as Row[]
+      : this.database.prepare(`
+          SELECT * FROM feedback
+          WHERE channel_id = ? AND actor_id = ?
+          ORDER BY updated_at DESC
+        `).all(channelId, userId) as Row[];
+    return rows.map(feedbackFromRow);
+  }
+
   async findEvaluation(articleId: string, channelId: string, profileVersion: number): Promise<StoredEvaluation | null> {
     const row = this.database.prepare(`
       SELECT * FROM evaluations
@@ -289,7 +362,7 @@ export class SqliteConciergeRepository implements ConciergeRepository {
     const previousRow = this.database.prepare(`
       SELECT * FROM feedback
       WHERE channel_id = ? AND article_id = ? AND actor_id = ? AND interface = ?
-    `).get(input.channelId, input.articleId, input.actorId, input.interface) as Row | undefined;
+    `).get(input.channelId, input.articleId, input.userId, input.interface) as Row | undefined;
     const previous = previousRow ? feedbackFromRow(previousRow) : null;
     const now = new Date().toISOString();
     const id = previous?.id ?? randomUUID();
@@ -299,7 +372,7 @@ export class SqliteConciergeRepository implements ConciergeRepository {
       INSERT INTO feedback (
         id, channel_id, article_id, actor_id, reaction, signal, interface, created_at, updated_at
       ) VALUES (
-        @id, @channelId, @articleId, @actorId, @reaction, @signal, @interface, @createdAt, @updatedAt
+        @id, @channelId, @articleId, @userId, @reaction, @signal, @interface, @createdAt, @updatedAt
       )
       ON CONFLICT(channel_id, article_id, actor_id, interface) DO UPDATE SET
         reaction = excluded.reaction,
@@ -391,7 +464,8 @@ export class SqliteConciergeRepository implements ConciergeRepository {
         (SELECT COUNT(*) FROM evaluations) AS evaluations,
         (SELECT COUNT(*) FROM deliveries) AS deliveries,
         (SELECT COUNT(*) FROM feedback) AS feedback,
-        (SELECT COUNT(*) FROM channels) AS channels
+        (SELECT COUNT(*) FROM channels) AS channels,
+        (SELECT COUNT(*) FROM users) AS users
     `).get() as Row;
     return {
       articles: Number(counts.articles),
@@ -400,6 +474,7 @@ export class SqliteConciergeRepository implements ConciergeRepository {
       deliveries: Number(counts.deliveries),
       feedback: Number(counts.feedback),
       channels: Number(counts.channels),
+      users: Number(counts.users),
     };
   }
 }
@@ -466,13 +541,31 @@ function feedbackFromRow(row: Row): Feedback {
     id: String(row.id),
     channelId: String(row.channel_id),
     articleId: String(row.article_id),
-    actorId: String(row.actor_id),
+    userId: String(row.actor_id),
     reaction: row.reaction as Feedback["reaction"],
     signal: Number(row.signal),
     interface: row.interface as Feedback["interface"],
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   };
+}
+
+function userFromRow(row: Row): User {
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    kind: row.kind as User["kind"],
+    createdAt: String(row.created_at),
+    lastSeenAt: String(row.last_seen_at),
+  };
+}
+
+function defaultUserName(id: string, kind: User["kind"]): string {
+  const shortId = id.slice(0, 8).toUpperCase();
+  if (kind === "discord") return `Discord ${shortId}`;
+  if (kind === "system") return "System";
+  if (kind === "legacy") return `Legacy ${shortId}`;
+  return `Visitor ${shortId}`;
 }
 
 function deliveryFromRow(row: Row): Delivery {

@@ -7,8 +7,7 @@ import type {
   RankingAlgorithmLiveState,
   RankingAlgorithmParameter,
 } from "../../src/domain/model";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+import { apiUrlWithQuery } from "../api-url";
 
 interface AlgorithmCatalogPayload {
   active: string;
@@ -31,7 +30,7 @@ export function AlgorithmCatalog() {
     async function refresh() {
       setSyncing(true);
       try {
-        const url = new URL("/api/algorithms", API_URL);
+        const url = apiUrlWithQuery("/api/algorithms");
         url.searchParams.set("channelId", channelId);
         const response = await fetch(url, { cache: "no-store", signal: controller.signal });
         if (!response.ok) throw new Error(`Algorithm API returned ${response.status}`);
@@ -60,10 +59,11 @@ export function AlgorithmCatalog() {
           <span>NEWS FEED CONCIERGE</span>
         </a>
         <nav aria-label="Application sections">
-          <a href="/#overview">Overview</a>
+          <a href="/">Overview</a>
           <a href="/queue">Delivery queue</a>
-          <a href="/#learning">Learning</a>
+          <a href="/learning">Learning</a>
           <a className="active" href="/algorithms">Algorithms</a>
+          <a href="/users">Users</a>
         </nav>
         <a className="backLink" href="/">← Control room</a>
       </header>

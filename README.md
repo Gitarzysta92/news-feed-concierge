@@ -12,7 +12,7 @@ npm install
 npm run dev
 ```
 
-The dashboard runs at `http://localhost:3000`; the Express API runs at `http://localhost:4000`. Click **Run ingestion now** or run `npm run ingest` to collect the first batch.
+The dashboard runs at `http://localhost:3000`; the Express API runs at `http://localhost:4000`. The root page is a compact overview of every application area, while `/learning`, `/queue`, and `/algorithms` provide the detailed workspaces. Click **Run ingestion now** or run `npm run ingest` to collect the first batch.
 
 The Codex Text Gateway and Discord are optional at runtime. Without `CODEX_GATEWAY_API_TOKEN`, ranking falls back cleanly to the selected base algorithm. Without Discord credentials, collection, learning, API routes, and the dashboard remain usable.
 
@@ -28,6 +28,12 @@ The hybrid ranker works in this order:
 2. Its score, feature contributions, channel profile, and extracted article text become structured context for the optional LLM evaluator.
 3. The final score blends base and semantic scores using `LLM_WEIGHT`.
 4. 👍, 🔥, 👎, and 💤 update the same channel profile whether they arrive from Discord or the dashboard.
+
+Dashboard visitors receive an anonymous user record on their first visit without a sign-up step. Only its plain ID is
+kept in browser storage; SQLite remains authoritative for the user and reaction records. Reloading restores that
+visitor's selected reactions, while another browser identity gets an independent set of choices.
+User records also keep a persisted display name. `/users` provides the unauthenticated POC management surface for
+reviewing identities and assigning custom names; new anonymous identities receive a readable `Visitor <short-id>` name.
 
 Every ranked article exposes a five-stage processing trace—collection, full-text extraction, base ranking, semantic evaluation, and finalization. Each stage is explicitly marked `completed`, `skipped`, or `failed`, with the concrete reason visible in the dashboard and API.
 
@@ -81,3 +87,35 @@ npm run build           # dashboard production build + TypeScript check
 ```
 
 Content comes from the public [Hacker News API](https://github.com/HackerNews/API) and [DEV/Forem API](https://developers.forem.com/api/v1). Full text is fetched from each canonical article URL and stored locally for evaluation.
+
+## Cloud Run deployment
+
+The production container keeps the dashboard and Express API as separate internal
+servers, then exposes one Cloud Run ingress port. Requests under `/api` plus the
+health endpoints go to Express; application pages and assets go to Vinext.
+
+This POC intentionally keeps SQLite at
+`/tmp/news-feed-concierge/concierge.sqlite`. Cloud Run is configured with a
+service-level maximum of one instance, a minimum of zero, request-based CPU,
+and concurrency one. The database is disposable: a new instance or revision
+starts with an empty database.
+
+The GitHub workflow in `.github/workflows/deploy-cloud-run.yml` builds the
+container, pushes it to Artifact Registry, and deploys it using GitHub OIDC and
+Google Workload Identity Federation. It does not use a service-account JSON
+key. The Codex gateway bearer token stays in Google Secret Manager under
+`codex-gateway-api-token` and is attached to the Cloud Run revision at runtime.
+
+Bootstrap the Google resources after authenticating the Google Cloud CLI:
+
+```bash
+export GCP_PROJECT_ID=your-project-id
+export CODEX_GATEWAY_API_TOKEN=your-token
+./scripts/bootstrap-gcp.sh
+```
+
+The script prints the non-secret variables that must be added to the GitHub
+`production` environment. Scheduled `node-cron` work only runs while an
+instance is active because the service scales to zero. Discord is disabled
+unless its credentials are supplied separately; its long-running gateway
+connection is not reliable with this scale-to-zero configuration.

@@ -167,7 +167,8 @@ export class DiscordBotAdapter implements DeliveryEdge {
         channelId: delivery.channelId,
         channelName,
         articleId: delivery.articleId,
-        actorId: user.id,
+        userId: user.id,
+        userName: user.globalName ?? user.username ?? undefined,
         reaction: definition.reaction,
         interface: "discord",
       });

@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable @next/next/no-html-link-for-pages -- vinext HMR currently duplicates React when next/link is optimized */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
@@ -9,18 +10,21 @@ import type {
   IngestionRun,
   RankedArticle,
   RankingAlgorithmReference,
+  User,
 } from "../src/domain/model";
 import type { ReactionDefinition } from "../src/domain/reactions";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+import { ensureAnonymousUser, shortUserId } from "./anonymous-user";
+import { API_BASE_URL, apiUrl, apiUrlWithQuery } from "./api-url";
 
 interface DashboardPayload {
+  user: User;
   stats: DashboardStats;
   runs: IngestionRun[];
   channels: ChannelProfile[];
   profile: ChannelProfile;
   ranked: RankedDto[];
   reactions: ReactionDefinition[];
+  userReactions: Record<string, FeedbackReaction>;
   services: { ranking: string; llm: string; discord: string; ingestionRunning: boolean };
 }
 
@@ -31,16 +35,19 @@ type RankedDto = Omit<RankedArticle, "article"> & {
 
 export function Dashboard() {
   const [data, setData] = useState<DashboardPayload | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [channel, setChannel] = useState({ id: "admin-preview", name: "dashboard-preview" });
   const [busy, setBusy] = useState(false);
   const [ratingArticle, setRatingArticle] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async (selected = channel) => {
+  const load = useCallback(async (selected = channel, identity = user) => {
+    if (!identity) return;
     try {
-      const url = new URL("/api/dashboard", API_URL);
+      const url = apiUrlWithQuery("/api/dashboard");
       url.searchParams.set("channelId", selected.id);
       url.searchParams.set("channelName", selected.name);
+      url.searchParams.set("userId", identity.id);
       const response = await fetch(url, { cache: "no-store" });
       if (!response.ok) throw new Error(`Dashboard API returned ${response.status}`);
       const payload = await response.json() as DashboardPayload;
@@ -49,7 +56,22 @@ export function Dashboard() {
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Dashboard API is unavailable");
     }
-  }, [channel]);
+  }, [channel, user]);
+
+  useEffect(() => {
+    let active = true;
+    void ensureAnonymousUser(API_BASE_URL)
+      .then((identity) => {
+        if (!active) return;
+        setUser(identity);
+        setError(null);
+      })
+      .catch((identityError) => {
+        if (!active) return;
+        setError(identityError instanceof Error ? identityError.message : "Could not create an anonymous identity");
+      });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     const request = window.setTimeout(() => void load(), 0);
@@ -66,7 +88,7 @@ export function Dashboard() {
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch(`${API_URL}/api/ingestion`, { method: "POST" });
+      const response = await fetch(apiUrl("/api/ingestion"), { method: "POST" });
       if (!response.ok) throw new Error(`Ingestion failed with ${response.status}`);
       await load();
     } catch (ingestionError) {
@@ -77,17 +99,18 @@ export function Dashboard() {
   }
 
   async function rate(articleId: string, reaction: FeedbackReaction) {
+    if (!user) return;
     setRatingArticle(articleId);
     setError(null);
     try {
-      const response = await fetch(`${API_URL}/api/feedback`, {
+      const response = await fetch(apiUrl("/api/feedback"), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           channelId: channel.id,
           channelName: channel.name,
           articleId,
-          actorId: "admin",
+          userId: user.id,
           reaction,
         }),
       });
@@ -105,7 +128,7 @@ export function Dashboard() {
     if (!selected) return;
     const next = { id: selected.id, name: selected.name };
     setChannel(next);
-    await load(next);
+    await load(next, user);
   }
 
   const stats = data?.stats;
@@ -115,18 +138,24 @@ export function Dashboard() {
   return (
     <main>
       <header className="topbar">
-        <a className="brand" href="#top" aria-label="News Feed Concierge home">
+        <a className="brand" href="/" aria-label="News Feed Concierge home">
           <span className="brandMark">N</span>
           <span>NEWS FEED CONCIERGE</span>
         </a>
         <nav aria-label="Dashboard sections">
-          <a className="active" href="#overview">Overview</a>
+          <a href="/">Overview</a>
           <a href="/queue">Delivery queue</a>
-          <a href="#learning">Learning</a>
+          <a className="active" href="/learning">Learning</a>
           <a href="/algorithms">Algorithms</a>
+          <a href="/users">Users</a>
         </nav>
-        <div className={`systemState ${systemHealthy ? "" : "offline"}`}>
-          <i /> {systemHealthy ? "SYSTEM NOMINAL" : "API OFFLINE"}
+        <div className="headerStatus">
+          <span className="userIdentity" title={user?.id ?? "Creating anonymous identity"}>
+            {user ? `${user.name} · ${shortUserId(user.id)}` : "IDENTIFYING…"}
+          </span>
+          <div className={`systemState ${systemHealthy ? "" : "offline"}`}>
+            <i /> {systemHealthy ? "SYSTEM NOMINAL" : "API OFFLINE"}
+          </div>
         </div>
       </header>
 
@@ -143,7 +172,7 @@ export function Dashboard() {
 
       {error && <div className="errorBanner" role="alert"><strong>Connection issue.</strong> {error}. Start the app with <code>npm run dev</code>.</div>}
 
-      <section className="metrics" id="overview" aria-label="Application metrics">
+      <section className="metrics" id="learning-summary" aria-label="Learning metrics">
         <Metric label="ARTICLES FETCHED" value={stats?.articles} note={`${stats?.extracted ?? 0} with full text`} />
         <Metric
           label="EVALUATED"
@@ -151,7 +180,12 @@ export function Dashboard() {
           note={data ? `${data.services.ranking} · ${data.services.llm}` : "loading"}
         />
         <Metric label="DELIVERED" value={stats?.deliveries} note="duplicate-safe per channel" />
-        <Metric label="FEEDBACK SIGNALS" value={stats?.feedback} note={`${stats?.channels ?? 0} learning profiles`} accent />
+        <Metric
+          label="FEEDBACK SIGNALS"
+          value={stats?.feedback}
+          note={`${stats?.users ?? 0} visitor identities · ${stats?.channels ?? 0} channel profiles`}
+          accent
+        />
       </section>
 
       <div className="dashboardGrid">
@@ -228,7 +262,9 @@ export function Dashboard() {
                         type="button"
                         aria-label={definition.label}
                         title={definition.label}
-                        disabled={ratingArticle === item.article.id}
+                        className={data.userReactions[item.article.id] === definition.reaction ? "selected" : ""}
+                        aria-pressed={data.userReactions[item.article.id] === definition.reaction}
+                        disabled={!user || ratingArticle === item.article.id}
                         onClick={() => void rate(item.article.id, definition.reaction)}
                       >
                         {definition.reaction}
@@ -260,7 +296,11 @@ export function Dashboard() {
                 <b>{Number(weight).toFixed(2)}</b>
               </div>
             ))}
-            <p className="hint">Every interface uses the same four reactions. Feedback updates this channel only; LLM judgment refines the classic score but never owns it.</p>
+            <p className="hint">
+              Your selected reactions are restored for visitor {user ? shortUserId(user.id) : "…"} and stay separate
+              from other visitors. Their signals teach this channel profile; LLM judgment refines the base score but
+              never owns it.
+            </p>
             {!!data && Object.keys(data.profile.tagAffinities).length > 0 && (
               <div className="learnedTags">
                 <span>LEARNED TOPICS</span>

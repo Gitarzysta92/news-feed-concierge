@@ -16,6 +16,8 @@ import type {
   RankingScore,
   SourceArticle,
   StoredEvaluation,
+  User,
+  UserKind,
 } from "./model.js";
 
 export interface RankingContext {
@@ -72,6 +74,11 @@ export interface ConciergeRepository {
   listChannels(): Promise<ChannelProfile[]>;
   saveChannel(profile: ChannelProfile): Promise<void>;
 
+  ensureUser(input: { id?: string; name?: string; kind: UserKind }): Promise<User>;
+  listUsers(limit: number): Promise<User[]>;
+  updateUserName(id: string, name: string): Promise<User>;
+  listUserFeedback(channelId: string, userId: string, feedbackInterface?: FeedbackInterface): Promise<Feedback[]>;
+
   findEvaluation(articleId: string, channelId: string, profileVersion: number): Promise<StoredEvaluation | null>;
   saveEvaluation(evaluation: StoredEvaluation): Promise<void>;
   invalidateEvaluations(channelId: string): Promise<void>;
@@ -79,7 +86,7 @@ export interface ConciergeRepository {
   upsertFeedback(input: {
     channelId: string;
     articleId: string;
-    actorId: string;
+    userId: string;
     reaction: FeedbackReaction;
     signal: number;
     interface: FeedbackInterface;

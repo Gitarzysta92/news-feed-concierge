@@ -14,6 +14,15 @@ export type ContentStatus = "extracted" | "source-only" | "failed";
 export type FeedbackReaction = "👍" | "🔥" | "👎" | "💤";
 export type FeedbackInterface = string;
 export type DeliveryReason = "command" | "scheduled" | "serendipity";
+export type UserKind = "anonymous" | "discord" | "system" | "legacy";
+
+export interface User {
+  id: string;
+  name: string;
+  kind: UserKind;
+  createdAt: string;
+  lastSeenAt: string;
+}
 
 export interface Article {
   id: string;
@@ -133,7 +142,7 @@ export interface Feedback {
   id: string;
   channelId: string;
   articleId: string;
-  actorId: string;
+  userId: string;
   reaction: FeedbackReaction;
   signal: number;
   interface: FeedbackInterface;
@@ -182,6 +191,7 @@ export interface DashboardStats {
   deliveries: number;
   feedback: number;
   channels: number;
+  users: number;
 }
 
 export interface SourceArticle {

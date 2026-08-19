@@ -17,6 +17,7 @@
     "start": "concurrently -k -n DASHBOARD,APP \"npm:start:dashboard\" \"npm:start:backend\"",
     "start:dashboard": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
     "start:backend": "tsx src/entrypoints/all.ts",
+    "start:cloud-run": "node --import tsx src/entrypoints/cloud-run.ts",
     "test": "node --import tsx --test tests/*.test.ts",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next"
   },

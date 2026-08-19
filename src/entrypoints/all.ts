@@ -1,11 +1,11 @@
 import { createContainer } from "../bootstrap/container.js";
-import { startApi } from "./api.js";
+import { startApi, type ApiListenOptions } from "./api.js";
 import { DiscordBotAdapter } from "../infrastructure/discord/discord-bot-adapter.js";
 import { ConciergeScheduler } from "../infrastructure/scheduler/concierge-scheduler.js";
 
-async function main() {
+export async function startApplication(apiOptions: ApiListenOptions = {}) {
   const container = await createContainer();
-  const server = await startApi(container);
+  const server = await startApi(container, apiOptions);
   const discord = container.config.discord.enabled ? new DiscordBotAdapter({
     config: container.config.discord,
     deliverFeed: container.deliverFeed,
@@ -30,16 +30,35 @@ async function main() {
   }, discord);
   scheduler.start();
 
+  let stopped = false;
   const shutdown = async () => {
+    if (stopped) return;
+    stopped = true;
     scheduler.stop();
     if (discord) await discord.stop();
-    server.close();
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
   };
-  process.once("SIGINT", () => void shutdown());
-  process.once("SIGTERM", () => void shutdown());
+
+  return { container, server, shutdown };
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+async function main() {
+  const application = await startApplication();
+  const shutdown = () => {
+    void application.shutdown().catch((error) => {
+      console.error("Application shutdown failed", error);
+      process.exitCode = 1;
+    });
+  };
+  process.once("SIGINT", shutdown);
+  process.once("SIGTERM", shutdown);
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}

@@ -3,8 +3,7 @@
 
 import { useEffect, useState } from "react";
 import type { ActionQueueSnapshot, QueuedAction } from "../../src/application/action-queue";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+import { apiUrl } from "../api-url";
 
 export function OperationQueue() {
   const [data, setData] = useState<ActionQueueSnapshot | null>(null);
@@ -15,7 +14,7 @@ export function OperationQueue() {
     const controller = new AbortController();
     async function refresh() {
       try {
-        const response = await fetch(`${API_URL}/api/queue`, {
+        const response = await fetch(apiUrl("/api/queue"), {
           cache: "no-store",
           signal: controller.signal,
         });
@@ -39,7 +38,7 @@ export function OperationQueue() {
     setStartingIngestion(true);
     setError(null);
     try {
-      const response = await fetch(`${API_URL}/api/ingestion`, { method: "POST" });
+      const response = await fetch(apiUrl("/api/ingestion"), { method: "POST" });
       if (!response.ok) throw new Error(`Ingestion returned ${response.status}`);
     } catch (ingestionError) {
       setError(ingestionError instanceof Error ? ingestionError.message : "Could not start ingestion");
@@ -59,10 +58,11 @@ export function OperationQueue() {
           <span>NEWS FEED CONCIERGE</span>
         </a>
         <nav aria-label="Application sections">
-          <a href="/#overview">Overview</a>
+          <a href="/">Overview</a>
           <a className="active" href="/queue">Delivery queue</a>
-          <a href="/#learning">Learning</a>
+          <a href="/learning">Learning</a>
           <a href="/algorithms">Algorithms</a>
+          <a href="/users">Users</a>
         </nav>
         <a className="backLink" href="/">← Control room</a>
       </header>

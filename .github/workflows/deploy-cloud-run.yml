@@ -1,0 +1,130 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: cloud-run-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  REGION: ${{ vars.GCP_REGION }}
+  ARTIFACT_REPOSITORY: ${{ vars.GCP_ARTIFACT_REPOSITORY }}
+  SERVICE: ${{ vars.GCP_CLOUD_RUN_SERVICE }}
+  RUNTIME_SERVICE_ACCOUNT: ${{ vars.GCP_RUNTIME_SERVICE_ACCOUNT }}
+  REGISTRY_HOST: ${{ vars.GCP_REGION }}-docker.pkg.dev
+  IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GCP_ARTIFACT_REPOSITORY }}/news-feed-concierge
+
+jobs:
+  deploy:
+    name: Build and deploy
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Check deployment configuration
+        shell: bash
+        run: |
+          required=(
+            PROJECT_ID
+            REGION
+            ARTIFACT_REPOSITORY
+            SERVICE
+            RUNTIME_SERVICE_ACCOUNT
+          )
+          for name in "${required[@]}"; do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing GitHub production environment variable: ${name}" >&2
+              exit 1
+            fi
+          done
+          if [[ -z "${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}" ]]; then
+            echo "Missing GitHub production environment variable: GCP_WORKLOAD_IDENTITY_PROVIDER" >&2
+            exit 1
+          fi
+          if [[ -z "${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}" ]]; then
+            echo "Missing GitHub production environment variable: GCP_DEPLOYER_SERVICE_ACCOUNT" >&2
+            exit 1
+          fi
+          if [[ -z "${{ vars.GCP_CODEX_GATEWAY_SECRET }}" ]]; then
+            echo "Missing GitHub production environment variable: GCP_CODEX_GATEWAY_SECRET" >&2
+            exit 1
+          fi
+
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - id: auth
+        name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+
+      - name: Set up Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Configure Artifact Registry authentication
+        run: gcloud auth configure-docker "${REGISTRY_HOST}" --quiet
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build and push container
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - id: deploy
+        name: Deploy Cloud Run service
+        uses: google-github-actions/deploy-cloudrun@v3
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+          region: ${{ env.REGION }}
+          service: ${{ env.SERVICE }}
+          image: ${{ env.IMAGE }}:${{ github.sha }}
+          env_vars_update_strategy: overwrite
+          env_vars: |
+            NODE_ENV=production
+            DATABASE_FILE=/tmp/news-feed-concierge/concierge.sqlite
+            LLM_PROVIDER=codex-gateway
+            RUN_INGESTION_ON_START=false
+          secrets_update_strategy: overwrite
+          secrets: |
+            CODEX_GATEWAY_API_TOKEN=${{ vars.GCP_CODEX_GATEWAY_SECRET }}:latest
+          timeout: 5m
+          flags: >-
+            --allow-unauthenticated
+            --ingress=all
+            --execution-environment=gen2
+            --port=8080
+            --cpu=1
+            --memory=1Gi
+            --concurrency=1
+            --min=0
+            --max=1
+            --cpu-throttling
+            --no-session-affinity
+            --service-account=${{ env.RUNTIME_SERVICE_ACCOUNT }}
+
+      - name: Verify deployment
+        env:
+          SERVICE_URL: ${{ steps.deploy.outputs.url }}
+        run: curl --fail --show-error --silent --retry 8 --retry-all-errors --retry-delay 5 "${SERVICE_URL}/health"
+
+      - name: Publish service URL
+        run: echo "### Cloud Run deployment"$'\n'"${{ steps.deploy.outputs.url }}" >> "${GITHUB_STEP_SUMMARY}"

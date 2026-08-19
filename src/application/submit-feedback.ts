@@ -14,7 +14,8 @@ export class SubmitFeedback {
     channelId: string;
     channelName: string;
     articleId: string;
-    actorId: string;
+    userId: string;
+    userName?: string;
     reaction: FeedbackReaction;
     interface: FeedbackInterface;
   }) {
@@ -24,13 +25,18 @@ export class SubmitFeedback {
       this.repository.findArticle(input.articleId),
       this.repository.ensureChannel(input.channelId, input.channelName),
       this.repository.listRecentlyDeliveredArticles(input.channelId, 20),
+      this.repository.ensureUser({
+        id: input.userId,
+        name: input.userName,
+        kind: input.interface === "discord" ? "discord" : "anonymous",
+      }),
     ]);
     if (!article) throw new Error(`Article not found: ${input.articleId}`);
     const action = this.actions?.enqueue({
       kind: "learning",
       label: `Learn from ${input.reaction} on ${article.title}`,
       detail: `Updating #${input.channelName} with ${this.algorithm.metadata.displayName}`,
-      context: { articleId: article.id, channelId: input.channelId, actorId: input.actorId },
+      context: { articleId: article.id, channelId: input.channelId, userId: input.userId },
     });
     action?.start();
 
@@ -38,7 +44,7 @@ export class SubmitFeedback {
       const persisted = await this.repository.upsertFeedback({
         channelId: input.channelId,
         articleId: input.articleId,
-        actorId: input.actorId,
+        userId: input.userId,
         reaction: input.reaction,
         signal: definition.signal,
         interface: input.interface,

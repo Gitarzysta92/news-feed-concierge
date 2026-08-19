@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
-import { Dashboard } from "./dashboard";
+import { Overview } from "./overview";
 
 export const metadata: Metadata = {
-  title: "News Feed Concierge · Control room",
-  description: "Monitor ingestion, ranking, delivery, and channel feedback.",
+  title: "Overview · News Feed Concierge",
+  description: "See the most important learning, processing, delivery, and algorithm signals in one place.",
 };
 
 export default function Home() {
-  return <Dashboard />;
+  return <Overview />;
 }

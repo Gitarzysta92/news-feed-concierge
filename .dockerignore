@@ -1,0 +1,12 @@
+node_modules
+dist
+.next
+.vinext
+.wrangler
+data
+coverage
+.git
+.github
+.env*
+*.log
+gha-creds-*.json

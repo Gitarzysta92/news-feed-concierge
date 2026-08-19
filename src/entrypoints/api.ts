@@ -10,8 +10,16 @@ const feedbackSchema = z.object({
   channelId: z.string().min(1),
   channelName: z.string().min(1),
   articleId: z.string().min(1),
-  actorId: z.string().min(1).default("admin"),
+  userId: z.string().min(1),
   reaction: z.enum(["👍", "🔥", "👎", "💤"]),
+});
+
+const anonymousUserSchema = z.object({
+  id: z.uuid().optional(),
+});
+
+const userNameSchema = z.object({
+  name: z.string().trim().min(1).max(60),
 });
 
 export function createApi(container: AppContainer) {
@@ -32,29 +40,62 @@ export function createApi(container: AppContainer) {
     });
   });
 
+  app.post("/api/users/anonymous", async (request, response, next) => {
+    try {
+      const { id } = anonymousUserSchema.parse(request.body ?? {});
+      const user = await container.repository.ensureUser({ id, kind: "anonymous" });
+      response.status(id ? 200 : 201).json(user);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/users", async (request, response, next) => {
+    try {
+      const limit = Math.min(200, Math.max(1, Number(request.query.limit) || 100));
+      response.json({ users: await container.repository.listUsers(limit) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/users/:userId", async (request, response, next) => {
+    try {
+      const { name } = userNameSchema.parse(request.body);
+      response.json(await container.repository.updateUserName(request.params.userId, name));
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.get("/api/dashboard", async (request, response, next) => {
     try {
       const channelId = String(request.query.channelId || container.config.adminChannel.id);
       const channelName = String(request.query.channelName || container.config.adminChannel.name);
+      const userId = z.string().min(1).parse(request.query.userId);
+      const user = await container.repository.ensureUser({ id: userId, kind: "anonymous" });
       // Ranking may regenerate evaluations after feedback invalidates the cache.
       // Complete it before reading statistics so the dashboard snapshot is consistent.
       const ranked = await container.rankFeed.execute(channelId, channelName, {
         limit: 12,
         semanticMode: "cached-only",
       });
-      const [stats, runs, channels, profile] = await Promise.all([
+      const [stats, runs, channels, profile, feedback] = await Promise.all([
         container.repository.stats(),
         container.repository.listRuns(8),
         container.repository.listChannels(),
         container.repository.ensureChannel(channelId, channelName),
+        container.repository.listUserFeedback(channelId, user.id, "admin"),
       ]);
       response.json({
+        user,
         stats,
         runs,
         channels,
         profile,
         ranked: ranked.map(toRankedDto),
         reactions: REACTIONS,
+        userReactions: Object.fromEntries(feedback.map((item) => [item.articleId, item.reaction])),
         services: {
           ranking: `${container.rankingAlgorithm.metadata.displayName} v${container.rankingAlgorithm.metadata.version}`,
           llm: container.llm.enabled ? `enabled (${container.llm.name})` : container.llm.name,
@@ -162,11 +203,18 @@ export function createApi(container: AppContainer) {
   return app;
 }
 
-export async function startApi(container?: AppContainer) {
+export interface ApiListenOptions {
+  host?: string;
+  port?: number;
+}
+
+export async function startApi(container?: AppContainer, options: ApiListenOptions = {}) {
   const resolved = container ?? await createContainer();
   const app = createApi(resolved);
-  return app.listen(resolved.config.apiPort, () => {
-    console.log(`News Feed Concierge API listening on http://localhost:${resolved.config.apiPort}`);
+  const host = options.host ?? "0.0.0.0";
+  const port = options.port ?? resolved.config.apiPort;
+  return app.listen(port, host, () => {
+    console.log(`News Feed Concierge API listening on http://${host}:${port}`);
   });
 }
 
