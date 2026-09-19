@@ -21,6 +21,11 @@ export class SubmitFeedback {
     reaction: FeedbackReaction;
     interface: FeedbackInterface;
   }) {
+    const work = () => this.apply(input);
+    return this.repository.withChannelLock ? this.repository.withChannelLock(input.channelId, work) : work();
+  }
+
+  private async apply(input: Parameters<SubmitFeedback["execute"]>[0]) {
     const definition = reactionDefinition(input.reaction);
     if (!definition) throw new Error(`Unsupported reaction: ${input.reaction}`);
     const [article, profile] = await Promise.all([

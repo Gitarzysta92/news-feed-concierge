@@ -1,3 +1,4 @@
+import type { Workflows } from "../../application/workflows.js";
 import cron, { type ScheduledTask } from "node-cron";
 import type { DeliverFeed } from "../../application/deliver-feed.js";
 import type { IngestionCoordinator } from "../../application/ingestion-coordinator.js";
@@ -5,6 +6,7 @@ import type { RankFeed } from "../../application/rank-feed.js";
 import type { ConciergeRepository, DeliveryEdge } from "../../domain/ports.js";
 
 export interface SchedulerDependencies {
+  workflows?: Workflows | null;
   config: {
     ingestCron: string;
     deliveryCron: string;
@@ -29,15 +31,26 @@ export class ConciergeScheduler {
   ) {}
 
   start(): void {
-    this.tasks.push(cron.schedule(this.dependencies.config.ingestCron, () => void this.ingestAndConsiderSerendipity(), {
+    this.dependencies.workflows?.register("ingestion", () => this.ingestAndConsiderSerendipity());
+    this.dependencies.workflows?.register("delivery", () => this.deliverScheduled());
+    const ingest = () => this.dispatch("ingestion", () => this.ingestAndConsiderSerendipity());
+    const deliver = () => this.dispatch("delivery", () => this.deliverScheduled());
+    this.tasks.push(cron.schedule(this.dependencies.config.ingestCron, ingest, {
       name: "content-ingestion",
       noOverlap: true,
     }));
-    this.tasks.push(cron.schedule(this.dependencies.config.deliveryCron, () => void this.deliverScheduled(), {
+    this.tasks.push(cron.schedule(this.dependencies.config.deliveryCron, deliver, {
       name: "scheduled-delivery",
       noOverlap: true,
     }));
-    if (this.dependencies.config.runIngestionOnStart) void this.ingestAndConsiderSerendipity();
+    if (this.dependencies.config.runIngestionOnStart) void ingest();
+  }
+
+  private async dispatch(kind: string, work: () => Promise<void>) {
+    try {
+      if (this.dependencies.workflows) await this.dependencies.workflows.enqueue(kind);
+      else await work();
+    } catch (error) { console.error(`Could not schedule ${kind}`, error); }
   }
 
   stop(): void {
@@ -69,6 +82,7 @@ export class ConciergeScheduler {
       }
     } catch (error) {
       console.error("Scheduled ingestion failed", error);
+      throw error;
     }
   }
 
@@ -88,6 +102,7 @@ export class ConciergeScheduler {
       }
     } catch (error) {
       console.error("Scheduled delivery failed", error);
+      throw error;
     } finally {
       this.deliveryRunning = false;
     }

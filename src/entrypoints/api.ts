@@ -1,4 +1,5 @@
 import cors from "cors";
+import { createHash, timingSafeEqual } from "node:crypto";
 import express from "express";
 import { z } from "zod";
 import { REACTIONS } from "../domain/reactions.js";
@@ -28,7 +29,34 @@ export function createApi(container: AppContainer) {
   app.use(cors({ origin: container.config.dashboardOrigin }));
   app.use(express.json({ limit: "32kb" }));
 
-  app.get("/health", async (_request, response) => {
+  app.use("/api/settings/inference", (request, response, next) => {
+    response.setHeader("Cache-Control", "no-store");
+    const expected = container.config.inferenceAdminToken;
+    if (!expected || expected.length < 16 || !container.inference.available) {
+      response.status(503).json({ error: "Inference settings require PostgreSQL, INFERENCE_ADMIN_TOKEN (16+ characters), and INFERENCE_SETTINGS_KEY (64 hex characters)" });
+      return;
+    }
+    const supplied = request.get("authorization")?.replace(/^Bearer /i, "") ?? "";
+    const digest = (value: string) => createHash("sha256").update(value).digest();
+    if (!timingSafeEqual(digest(supplied), digest(expected))) {
+      response.status(401).json({ error: "Invalid admin token" });
+      return;
+    }
+    next();
+  });
+
+  app.get("/api/settings/inference", (_request, response) => {
+    response.json(container.inference.snapshot());
+  });
+
+  app.put("/api/settings/inference", async (request, response, next) => {
+    try { response.json(await container.inference.update(request.body)); }
+    catch (error) { next(error); }
+  });
+
+  app.get(["/health", "/healthz", "/ready", "/readyz"], async (_request, response) => {
+    try { await container.database?.query("SELECT 1"); }
+    catch { response.status(503).json({ status: "database-unavailable" }); return; }
     response.json({
       status: "ok",
       llmEnabled: container.llm.enabled,
@@ -85,6 +113,7 @@ export function createApi(container: AppContainer) {
         semanticMode: "cached-only",
         unratedBy: unratedOnly ? { userId: user.id, interface: "admin" } : undefined,
       });
+      if (container.workflows && container.llm.enabled) await container.workflows.enqueue("evaluation", { channelId, channelName }, `evaluation:${channelId}`);
       const [stats, runs, channels, profile, feedback] = await Promise.all([
         container.repository.stats(),
         container.repository.listRuns(8),
@@ -168,15 +197,23 @@ export function createApi(container: AppContainer) {
     }
   });
 
-  app.get("/api/queue", (_request, response) => {
-    response.json(container.actionQueue.snapshot());
+  app.get("/api/jobs/:jobId", async (request, response) => {
+    const job = await container.workflowStore?.find(request.params.jobId);
+    if (!job) { response.status(404).json({ error: "Job not found" }); return; }
+    response.json(job);
+  });
+
+  app.get("/api/queue", async (_request, response) => {
+    await container.actionQueue.flush();
+    response.json(container.workflowStore ? await container.workflowStore.snapshot() : container.actionQueue.snapshot());
   });
 
   app.get("/api/channels/:channelId/feed", async (request, response, next) => {
     try {
       const channelName = String(request.query.channelName || request.params.channelId);
       const limit = Math.min(50, Math.max(1, Number(request.query.limit) || 10));
-      const ranked = await container.rankFeed.execute(request.params.channelId, channelName, { limit });
+      if (container.workflows && container.llm.enabled) await container.workflows.enqueue("evaluation", { channelId: request.params.channelId, channelName }, `evaluation:${request.params.channelId}`);
+      const ranked = await container.rankFeed.execute(request.params.channelId, channelName, { limit, semanticMode: container.workflows ? "cached-only" : "blocking" });
       response.json(ranked.map(toRankedDto));
     } catch (error) {
       next(error);
@@ -199,6 +236,11 @@ export function createApi(container: AppContainer) {
 
   app.post("/api/ingestion", async (_request, response, next) => {
     try {
+      if (container.workflows) {
+        const jobId = await container.workflows.enqueue("ingestion");
+        response.status(202).json({ jobId, status: "queued" });
+        return;
+      }
       const joinedExistingRun = container.ingestionCoordinator.running;
       const summaries = await container.ingestionCoordinator.execute();
       response.status(joinedExistingRun ? 200 : 202).json({ joinedExistingRun, summaries });
@@ -227,8 +269,12 @@ export async function startApi(container?: AppContainer, options: ApiListenOptio
   const app = createApi(resolved);
   const host = options.host ?? "0.0.0.0";
   const port = options.port ?? resolved.config.apiPort;
-  return app.listen(port, host, () => {
-    console.log(`News Feed Concierge API listening on http://${host}:${port}`);
+  return new Promise<import("node:http").Server>((resolve, reject) => {
+    const server = app.listen(port, host, () => {
+      console.log(`News Feed Concierge API listening on http://${host}:${port}`);
+      resolve(server);
+    });
+    server.once("error", reject);
   });
 }
 

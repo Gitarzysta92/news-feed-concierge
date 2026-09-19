@@ -34,6 +34,7 @@ export class DeliverFeed {
         this.inFlight.has(key)
         || await this.repository.hasDelivery(input.channelId, item.article.id, input.edge.key)
       ) continue;
+      if (this.repository.claimDelivery && !await this.repository.claimDelivery(input.channelId, item.article.id, input.edge.key)) continue;
       this.inFlight.add(key);
       const action = this.actions?.enqueue({
         kind: "delivery",
@@ -54,6 +55,7 @@ export class DeliverFeed {
         delivered.push(item);
         action?.complete(`Delivered through ${input.edge.key} · ${input.reason}`);
       } catch (error) {
+        await this.repository.markDeliveryUncertain?.(input.channelId, item.article.id, input.edge.key);
         action?.fail(error, `Delivery through ${input.edge.key} failed`);
         throw error;
       } finally {

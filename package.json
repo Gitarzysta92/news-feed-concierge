@@ -19,7 +19,11 @@
     "start:backend": "tsx src/entrypoints/all.ts",
     "start:cloud-run": "node --import tsx src/entrypoints/cloud-run.ts",
     "test": "node --import tsx --test tests/*.test.ts",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next"
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
+    "start:server": "node --import tsx src/entrypoints/server.ts",
+    "db:migrate": "node --import tsx src/entrypoints/migrate.ts",
+    "db:import-sqlite": "node --import tsx src/entrypoints/import-sqlite.ts",
+    "test:postgres": "node --import tsx --test tests/postgres.integration.test.ts"
   },
   "dependencies": {
     "@types/better-sqlite3": "^9.6.0",
@@ -34,6 +38,7 @@
     "express": "^5.2.1",
     "node-cron": "^4.6.0",
     "openai": "^7.5.0",
+    "pg": "8.16.3",
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "tsx": "^4.23.12",
@@ -46,6 +51,7 @@
     "@openai/sites-vite-plugin": "0.1.0",
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",
+    "@types/pg": "8.15.5",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.2",

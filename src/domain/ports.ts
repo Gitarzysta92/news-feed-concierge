@@ -35,6 +35,7 @@ export interface RankingAlgorithm {
 }
 
 export interface LlmEvaluator {
+  readonly cacheIdentity?: string;
   readonly enabled: boolean;
   readonly name: string;
   assess(input: {
@@ -78,6 +79,10 @@ export interface ArticlePage {
 }
 
 export interface ConciergeRepository {
+  close?(): Promise<void>;
+  withChannelLock?<T>(channelId: string, work: () => Promise<T>): Promise<T>;
+  claimDelivery?(channelId: string, articleId: string, deliveryInterface: string): Promise<boolean>;
+  markDeliveryUncertain?(channelId: string, articleId: string, deliveryInterface: string): Promise<void>;
   initialize(): Promise<void>;
   upsertArticle(article: IncomingArticle): Promise<{ article: Article; inserted: boolean }>;
   updateSourceMetadata(source: string, label: string, quality: number): Promise<void>;

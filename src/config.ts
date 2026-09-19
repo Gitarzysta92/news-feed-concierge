@@ -3,6 +3,7 @@ import { z } from "zod";
 
 const envSchema = z.object({
   API_PORT: z.coerce.number().int().positive().default(4000),
+  DATABASE_URL: z.string().min(1).optional(),
   DATABASE_FILE: z.string().default("./data/concierge.sqlite"),
   DASHBOARD_ORIGIN: z.string().default("http://localhost:3000"),
   ARTICLES_PER_SOURCE: z.coerce.number().int().min(1).max(100).default(25),
@@ -15,15 +16,16 @@ const envSchema = z.object({
   ADMIN_CHANNEL_ID: z.string().default("admin-preview"),
   ADMIN_CHANNEL_NAME: z.string().default("dashboard-preview"),
   RANKING_ALGORITHM: z.string().min(1).default("interpretable-linear-v1"),
-  LLM_PROVIDER: z.enum(["codex-gateway", "openai", "disabled"]).default("codex-gateway"),
+  LLM_PROVIDER: z.enum(["openai", "disabled"]).default("openai"),
   LLM_WEIGHT: z.coerce.number().min(0).max(1).default(0.3),
   LLM_CANDIDATE_LIMIT: z.coerce.number().int().min(0).max(25).default(2),
-  CODEX_GATEWAY_URL: z.string().url().default("https://codex-text-gateway-941436191445.europe-central2.run.app"),
-  CODEX_GATEWAY_API_TOKEN: z.string().optional(),
-  CODEX_GATEWAY_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(600_000).default(120_000),
-  CODEX_GATEWAY_POLL_INTERVAL_MS: z.coerce.number().int().min(250).max(10_000).default(1_000),
   OPENAI_API_KEY: z.string().optional(),
-  OPENAI_MODEL: z.string().default("gpt-5.6"),
+  OPENAI_BASE_URL: z.string().url().default("https://api.openai.com/v1"),
+  OPENAI_MODEL: z.string().min(1).default("gpt-5.6"),
+  OPENAI_MODEL_REVISION: z.string().default("1"),
+  OPENAI_TIMEOUT_MS: z.coerce.number().int().min(1000).max(600000).default(120000),
+  INFERENCE_ADMIN_TOKEN: z.string().optional(),
+  INFERENCE_SETTINGS_KEY: z.string().optional(),
   DISCORD_BOT_TOKEN: z.string().optional(),
 });
 
@@ -31,6 +33,7 @@ const parsed = envSchema.parse(process.env);
 
 export const config = {
   apiPort: parsed.API_PORT,
+  databaseUrl: parsed.DATABASE_URL,
   databaseFile: parsed.DATABASE_FILE,
   dashboardOrigin: parsed.DASHBOARD_ORIGIN,
   articlesPerSource: parsed.ARTICLES_PER_SOURCE,
@@ -45,14 +48,13 @@ export const config = {
   llmProvider: parsed.LLM_PROVIDER,
   llmWeight: parsed.LLM_WEIGHT,
   llmCandidateLimit: parsed.LLM_CANDIDATE_LIMIT,
-  codexGateway: {
-    url: parsed.CODEX_GATEWAY_URL,
-    apiToken: parsed.CODEX_GATEWAY_API_TOKEN,
-    timeoutMs: parsed.CODEX_GATEWAY_TIMEOUT_MS,
-    pollIntervalMs: parsed.CODEX_GATEWAY_POLL_INTERVAL_MS,
-  },
+  openAiBaseUrl: parsed.OPENAI_BASE_URL,
+  openAiModelRevision: parsed.OPENAI_MODEL_REVISION,
+  openAiTimeoutMs: parsed.OPENAI_TIMEOUT_MS,
   openAiApiKey: parsed.OPENAI_API_KEY,
   openAiModel: parsed.OPENAI_MODEL,
+  inferenceAdminToken: parsed.INFERENCE_ADMIN_TOKEN,
+  inferenceSettingsKey: parsed.INFERENCE_SETTINGS_KEY,
   discord: {
     enabled: Boolean(parsed.DISCORD_BOT_TOKEN),
     token: parsed.DISCORD_BOT_TOKEN,

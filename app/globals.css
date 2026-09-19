@@ -21,6 +21,19 @@ button { color: inherit; }
 nav { height: 68px; display: flex; gap: 32px; align-items: center; }
 nav a { height: 100%; display: flex; align-items: center; color: var(--muted); text-decoration: none; font-size: 13px; border-bottom: 2px solid transparent; }
 nav a:hover, nav a.active { color: var(--ink); border-color: var(--signal); }
+.inferencePanel { max-width: 850px; margin: 0 4vw 80px; }
+.inferenceFields { padding: 28px; display: grid; gap: 22px; }
+.inferenceFields p { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.inferenceFields label { display: grid; gap: 8px; font-size: 12px; font-weight: 650; }
+.inferenceFields label small { color: var(--muted); font-weight: 400; }
+.inferenceFields input:not([type="checkbox"]) { width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 0; background: white; color: var(--ink); font: 13px/1.4 var(--font-geist-mono), monospace; }
+.inferenceFields input:focus { outline: 2px solid var(--signal); outline-offset: 1px; }
+.inferenceFields .inferenceCheck { display: flex; align-items: center; gap: 10px; }
+.inferenceCheck input { width: 17px; height: 17px; accent-color: var(--ink); }
+.inferenceRow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.inferenceHeading { display: flex; justify-content: space-between; gap: 16px; align-items: start; }
+.inferenceMessage { margin: 0; padding: 15px 28px; border-top: 1px solid var(--line); font-size: 12px; }
+@media (max-width: 700px) { .inferenceRow { grid-template-columns: 1fr; } }
 .systemState { justify-self: end; font: 650 10px/1 var(--font-geist-mono), monospace; letter-spacing: .07em; }
 .headerStatus { justify-self: end; display: flex; align-items: center; gap: 15px; }
 .userIdentity { padding-right: 15px; border-right: 1px solid var(--line); color: var(--muted); font: 650 9px/1 var(--font-geist-mono), monospace; letter-spacing: .07em; }
@@ -308,7 +321,10 @@ h2 { margin: 0; font-size: 19px; letter-spacing: -.025em; font-weight: 620; }
 
 @media (max-width: 900px) {
   .topbar { grid-template-columns: 1fr auto; }
-  nav { display: none; }
+  .topbar .brand { grid-column: 1; grid-row: 1; }
+  .topbar .headerStatus, .topbar > .backLink { grid-column: 2; grid-row: 1; }
+  nav { grid-column: 1 / -1; grid-row: 2; width: 100%; height: 44px; overflow-x: auto; gap: 20px; }
+  nav a { flex: 0 0 auto; }
   .metrics { grid-template-columns: 1fr 1fr; }
   .metrics article:nth-child(2) { border-right: 0; }
   .metrics article:nth-child(-n+2) { border-bottom: 1px solid var(--line); }

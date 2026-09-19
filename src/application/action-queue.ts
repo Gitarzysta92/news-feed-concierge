@@ -38,7 +38,15 @@ export interface ActionHandle {
 export class ActionQueue {
   private readonly actions: QueuedAction[] = [];
 
-  constructor(private readonly recentLimit = 100) {}
+  private pending: Promise<void> = Promise.resolve();
+  constructor(private readonly recentLimit = 100, private readonly persist?: (action: QueuedAction) => Promise<void>) {}
+
+  async flush() { await this.pending; }
+  private save(action: QueuedAction) {
+    if (!this.persist) return;
+    const snapshot = structuredClone(action);
+    this.pending = this.pending.then(() => this.persist!(snapshot)).catch((error) => console.error("Activity persistence failed", error));
+  }
 
   enqueue(input: {
     kind: ActionKind;
@@ -59,6 +67,7 @@ export class ActionQueue {
       error: null,
     };
     this.actions.unshift(action);
+    this.save(action);
 
     return {
       id: action.id,
@@ -89,6 +98,7 @@ export class ActionQueue {
     action.status = "running";
     action.startedAt = new Date().toISOString();
     if (detail) action.detail = detail;
+    this.save(action);
   }
 
   private complete(id: string, detail?: string): void {
@@ -98,6 +108,7 @@ export class ActionQueue {
     action.status = "completed";
     action.finishedAt = new Date().toISOString();
     if (detail) action.detail = detail;
+    this.save(action);
     this.prune();
   }
 
@@ -109,6 +120,7 @@ export class ActionQueue {
     action.finishedAt = new Date().toISOString();
     action.error = error instanceof Error ? error.message : String(error);
     if (detail) action.detail = detail;
+    this.save(action);
     this.prune();
   }
 

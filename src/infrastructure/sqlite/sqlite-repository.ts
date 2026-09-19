@@ -1,3 +1,4 @@
+import { articleFromRow, channelFromRow, evaluationFromRow, feedbackFromRow, userFromRow, defaultUserName, deliveryFromRow, deliveryTargetFromRow, runFromRow } from "../persistence/row-mappers.js";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -12,8 +13,6 @@ import type {
   Feedback,
   IngestionRun,
   IncomingArticle,
-  LlmAssessment,
-  RankingScore,
   StoredEvaluation,
   User,
 } from "../../domain/model.js";
@@ -29,6 +28,8 @@ export class SqliteConciergeRepository implements ConciergeRepository {
     mkdirSync(dirname(absolute), { recursive: true });
     this.database = new Database(absolute);
   }
+
+  async close(): Promise<void> { this.database.close(); }
 
   async initialize(): Promise<void> {
     this.database.pragma("journal_mode = WAL");
@@ -164,6 +165,7 @@ export class SqliteConciergeRepository implements ConciergeRepository {
     for (const user of unnamedUsers) {
       nameUser.run(defaultUserName(String(user.id), user.kind as User["kind"]), String(user.id));
     }
+    ensureColumn(this.database, "evaluations", "cache_key", "TEXT");
     this.database.pragma("optimize");
   }
 
@@ -397,10 +399,10 @@ export class SqliteConciergeRepository implements ConciergeRepository {
     this.database.prepare(`
       INSERT INTO evaluations (
         article_id, channel_id, profile_version, ranking_algorithm, classic_json, llm_json,
-        final_score, reason, evaluated_at
+        final_score, reason, evaluated_at, cache_key
       ) VALUES (
         @articleId, @channelId, @profileVersion, @rankingAlgorithm, @classicJson, @llmJson,
-        @finalScore, @reason, @evaluatedAt
+        @finalScore, @reason, @evaluatedAt, @cacheKey
       )
       ON CONFLICT(article_id, channel_id) DO UPDATE SET
         profile_version = excluded.profile_version,
@@ -409,9 +411,11 @@ export class SqliteConciergeRepository implements ConciergeRepository {
         llm_json = excluded.llm_json,
         final_score = excluded.final_score,
         reason = excluded.reason,
-        evaluated_at = excluded.evaluated_at
+        evaluated_at = excluded.evaluated_at,
+        cache_key = excluded.cache_key
     `).run({
       ...evaluation,
+      cacheKey: evaluation.cacheKey ?? null,
       classicJson: JSON.stringify(evaluation.base),
       llmJson: evaluation.llm ? JSON.stringify(evaluation.llm) : null,
     });
@@ -584,52 +588,6 @@ export class SqliteConciergeRepository implements ConciergeRepository {
   }
 }
 
-function articleFromRow(row: Row): Article {
-  return {
-    id: String(row.id),
-    source: row.source as Article["source"],
-    sourceLabel: String(row.source_label),
-    sourceQuality: Number(row.source_quality),
-    externalId: String(row.external_id),
-    url: String(row.url),
-    title: String(row.title),
-    summary: String(row.summary),
-    content: String(row.content),
-    contentStatus: row.content_status as Article["contentStatus"],
-    author: row.author ? String(row.author) : null,
-    tags: JSON.parse(String(row.tags_json)) as string[],
-    imageUrl: row.image_url ? String(row.image_url) : null,
-    popularity: Number(row.popularity),
-    publishedAt: String(row.published_at),
-    fetchedAt: String(row.fetched_at),
-  };
-}
-
-function channelFromRow(row: Row): ChannelProfile {
-  return {
-    id: String(row.id),
-    name: String(row.name),
-    weights: JSON.parse(String(row.weights_json)) as ChannelProfile["weights"],
-    tagAffinities: JSON.parse(String(row.tag_affinities_json)) as Record<string, number>,
-    version: Number(row.version),
-    updatedAt: String(row.updated_at),
-  };
-}
-
-function evaluationFromRow(row: Row): StoredEvaluation {
-  return {
-    articleId: String(row.article_id),
-    channelId: String(row.channel_id),
-    profileVersion: Number(row.profile_version),
-    rankingAlgorithm: String(row.ranking_algorithm),
-    base: JSON.parse(String(row.classic_json)) as RankingScore,
-    llm: row.llm_json ? JSON.parse(String(row.llm_json)) as LlmAssessment : null,
-    finalScore: Number(row.final_score),
-    reason: String(row.reason),
-    evaluatedAt: String(row.evaluated_at),
-  };
-}
-
 function ensureColumn(
   database: Database.Database,
   table: string,
@@ -639,73 +597,4 @@ function ensureColumn(
   const columns = database.pragma(`table_info(${table})`) as Array<{ name: string }>;
   if (columns.some((item) => item.name === column)) return;
   database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
-}
-
-function feedbackFromRow(row: Row): Feedback {
-  return {
-    id: String(row.id),
-    channelId: String(row.channel_id),
-    articleId: String(row.article_id),
-    userId: String(row.actor_id),
-    reaction: row.reaction as Feedback["reaction"],
-    signal: Number(row.signal),
-    interface: row.interface as Feedback["interface"],
-    createdAt: String(row.created_at),
-    updatedAt: String(row.updated_at),
-  };
-}
-
-function userFromRow(row: Row): User {
-  return {
-    id: String(row.id),
-    name: String(row.name),
-    kind: row.kind as User["kind"],
-    createdAt: String(row.created_at),
-    lastSeenAt: String(row.last_seen_at),
-  };
-}
-
-function defaultUserName(id: string, kind: User["kind"]): string {
-  const shortId = id.slice(0, 8).toUpperCase();
-  if (kind === "discord") return `Discord ${shortId}`;
-  if (kind === "system") return "System";
-  if (kind === "legacy") return `Legacy ${shortId}`;
-  return `Visitor ${shortId}`;
-}
-
-function deliveryFromRow(row: Row): Delivery {
-  return {
-    id: String(row.id),
-    channelId: String(row.channel_id),
-    articleId: String(row.article_id),
-    interface: String(row.interface),
-    externalMessageId: row.external_message_id ? String(row.external_message_id) : null,
-    reason: row.reason as Delivery["reason"],
-    deliveredAt: String(row.delivered_at),
-  };
-}
-
-function deliveryTargetFromRow(row: Row): DeliveryTarget {
-  return {
-    interface: String(row.interface),
-    channelId: String(row.channel_id),
-    channelName: String(row.channel_name),
-    installationId: row.installation_id ? String(row.installation_id) : null,
-    createdAt: String(row.created_at),
-    updatedAt: String(row.updated_at),
-  };
-}
-
-function runFromRow(row: Row): IngestionRun {
-  return {
-    id: String(row.id),
-    source: String(row.source),
-    status: row.status as IngestionRun["status"],
-    fetchedCount: Number(row.fetched_count),
-    newCount: Number(row.new_count),
-    extractedCount: Number(row.extracted_count),
-    error: row.error ? String(row.error) : null,
-    startedAt: String(row.started_at),
-    finishedAt: row.finished_at ? String(row.finished_at) : null,
-  };
 }

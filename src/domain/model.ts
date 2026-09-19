@@ -182,6 +182,7 @@ export interface IngestionRun {
 }
 
 export interface StoredEvaluation {
+  cacheKey?: string;
   articleId: string;
   channelId: string;
   profileVersion: number;

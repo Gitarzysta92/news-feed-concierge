@@ -9,18 +9,27 @@ Requires Node.js 22.13 or newer.
 ```bash
 cp .env.example .env
 npm install
+# Start PostgreSQL, set DATABASE_URL and the OpenAI endpoint settings in .env.
+npm run db:migrate
 npm run dev
 ```
 
-The dashboard runs at `http://localhost:3000`; the Express API runs at `http://localhost:4000`. The root page is a compact overview of every application area, while `/learning`, `/queue`, and `/algorithms` provide the detailed workspaces. Click **Run ingestion now** or run `npm run ingest` to collect the first batch.
+The dashboard runs at `http://localhost:3000`; the Express API runs at `http://localhost:4000`. The root page is a compact overview of every application area, while `/learning`, `/queue`, `/algorithms`, and `/settings/inference` provide the detailed workspaces. Click **Run ingestion now** or run `npm run ingest` to collect the first batch.
 
-The Codex Text Gateway and Discord are optional at runtime. Without `CODEX_GATEWAY_API_TOKEN`, ranking falls back cleanly to the selected base algorithm. Without Discord credentials, collection, learning, API routes, and the dashboard remain usable.
+Production runs as three services: **server (UI and workflows)**, **OpenAI-compatible model**,
+and **PostgreSQL**. See [deployment instructions](docs/deployment.md) for a complete
+local Compose setup and Coolify configuration, and [architecture](docs/architecture.md)
+for ownership and failure behavior.
+
+Model evaluation and Discord are optional. Without model credentials, ranking
+uses the base algorithm. Without Discord credentials, collection, learning, API
+routes, and the dashboard remain usable.
 
 ## Shape
 
 The business boundary lives under `src/domain`: article/profile models, reaction semantics, algorithm-neutral ranking contracts, and the interpretable online learner. It has no Express, Discord, database, cron, or OpenAI dependencies.
 
-Application use cases under `src/application` coordinate ingestion, ranking, feedback, and delivery. Infrastructure adapters under `src/infrastructure` implement SQLite, Hacker News, DEV Community, HTML extraction, the asynchronous Codex Text Gateway, optional direct OpenAI evaluation, Discord, and cron. `src/entrypoints` contains the HTTP and process edges.
+Application use cases under `src/application` coordinate ingestion, ranking, feedback, and delivery. Infrastructure adapters under `src/infrastructure` implement PostgreSQL (plus legacy SQLite), Hacker News, DEV Community, HTML extraction, OpenAI-compatible evaluation, Discord, and cron. `src/entrypoints` contains the HTTP and process edges.
 
 The hybrid ranker works in this order:
 
@@ -53,24 +62,36 @@ Every ranking implementation must also publish metadata describing its display n
 
 Content sources are registered independently in `src/bootstrap/content-source-registry.ts`. A new adapter supplies its own stable key, display label, quality signal, and `fetchLatest` implementation—no domain union, dashboard label map, or ranking-algorithm source map needs editing.
 
-## LLM gateway
+## Model service
 
-The default provider is the hosted [Codex Text Gateway](https://codex-text-gateway-941436191445.europe-central2.run.app). Add its bearer token locally:
+The server calls a standard OpenAI-compatible `/v1/chat/completions` endpoint.
+Prompts, assessment validation, caching, and score blending belong to the server.
 
 ```dotenv
-LLM_PROVIDER=codex-gateway
-CODEX_GATEWAY_API_TOKEN=...
+LLM_PROVIDER=openai
+OPENAI_BASE_URL=http://localhost:11434/v1
+OPENAI_API_KEY=ollama
+OPENAI_MODEL=qwen2.5:1.5b
 ```
 
-The adapter submits an asynchronous generation job, polls its status URL, validates the returned JSON against the ranking schema, and cancels jobs that exceed the configured timeout. The gateway worker must also report ready; its authentication lifecycle is documented in [Gitarzysta92/ai-bucket](https://github.com/Gitarzysta92/ai-bucket).
-
-Direct OpenAI evaluation remains available as a swappable alternative through `LLM_PROVIDER=openai` and `OPENAI_API_KEY`.
-
-SQLite uniqueness constraints prevent the same article from being delivered twice to the same Discord channel. Scheduled ingestion and delivery use separate cron expressions; exceptional unseen articles can also trigger randomized serendipity delivery.
+Use your own compatible endpoint or the optional Ollama service in `compose.yaml`.
+The example model must be pulled once as described in the deployment guide.
+`OPENAI_MODEL_REVISION` invalidates cached assessments after replacing model weights.
+The **Inference** panel edits the endpoint, key, model, timeout, and blending parameters
+while the server is running. It requires PostgreSQL, `INFERENCE_ADMIN_TOKEN`, and
+`INFERENCE_SETTINGS_KEY`; saved settings override the initial environment values.
+See [deployment instructions](docs/deployment.md) for setup.
 
 ## Operation queue
 
-The `/queue` page polls `GET /api/queue` once per second and displays real application actions as they move through `queued`, `running`, `completed`, and `failed`. Ingestion, individual full-text extractions, semantic evaluations, reaction learning, and edge deliveries all report through the same application-level tracker. Recent history is intentionally bounded and process-local, so it resets when the backend restarts; durable ingestion and delivery outcomes remain in SQLite.
+With PostgreSQL configured, ingestion and evaluation run as persistent background
+jobs in the server. `POST /api/ingestion` returns `202` with a job ID; `/queue`
+shows jobs and persisted activity. Interrupted jobs recover after their lease
+expires, and retries use a bounded backoff. Dashboard requests return cached or
+base scores without waiting for model generation.
+
+Discord delivery uses durable intents to prevent concurrent sends. Ambiguous
+outcomes are marked `uncertain` and require reconciliation before a resend.
 
 ## Discord
 
@@ -99,36 +120,8 @@ npm run build           # dashboard production build + TypeScript check
 
 Content comes from the public [Hacker News API](https://github.com/HackerNews/API) and [DEV/Forem API](https://developers.forem.com/api/v1). Full text is fetched from each canonical article URL and stored locally for evaluation.
 
-## Cloud Run deployment
+## Deployment
 
-The production container keeps the dashboard and Express API as separate internal
-servers, then exposes one Cloud Run ingress port. Requests under `/api` plus the
-health endpoints go to Express; application pages and assets go to Vinext.
-
-This POC intentionally keeps SQLite at
-`/tmp/news-feed-concierge/concierge.sqlite`. Cloud Run is configured with a
-service-level maximum and minimum of one instance, instance-based CPU, and
-concurrency one so the Discord Gateway connection remains alive. The database
-is disposable: a new instance or revision starts with an empty database.
-
-The GitHub workflow in `.github/workflows/deploy-cloud-run.yml` builds the
-container, pushes it to Artifact Registry, and deploys it using GitHub OIDC and
-Google Workload Identity Federation. It does not use a service-account JSON
-key. The Codex gateway bearer token and Discord bot token stay in Google Secret
-Manager under `codex-gateway-api-token` and `discord-bot-token`; both are
-attached to the Cloud Run revision at runtime.
-
-Bootstrap the Google resources after authenticating the Google Cloud CLI:
-
-```bash
-export GCP_PROJECT_ID=your-project-id
-export CODEX_GATEWAY_API_TOKEN=your-token
-export DISCORD_BOT_TOKEN=your-discord-token
-./scripts/bootstrap-gcp.sh
-```
-
-The script prints the non-secret variables that must be added to the GitHub
-`production` environment. Production keeps one instance active with
-instance-based CPU allocation so the Discord Gateway connection and scheduled
-`node-cron` work remain alive. This has a continuous Cloud Run cost even while
-the HTTP application is idle.
+See [docs/deployment.md](docs/deployment.md) for Coolify, local Compose, backups,
+and SQLite-to-PostgreSQL migration. The repository's CI builds and tests the server;
+it does not deploy to the old Cloud Run service.

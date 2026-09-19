@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   Article,
   ChannelProfile,
@@ -46,6 +47,7 @@ export class RankFeed {
     private readonly candidateLimit = 120,
     private readonly llmCandidateLimit = 8,
     private readonly actions?: ActionQueue,
+    private readonly inferenceSnapshot?: () => { llm: LlmEvaluator; weight: number; candidateLimit: number },
   ) {}
 
   async execute(channelId: string, channelName: string, options: RankFeedOptions = {}): Promise<RankedArticle[]> {
@@ -126,7 +128,10 @@ export class RankFeed {
     recentlyDelivered: Article[],
     cachedSemanticOnly: boolean,
   ): Promise<RankedArticle[]> {
-
+    const active = this.inferenceSnapshot?.();
+    const evaluator = active?.llm ?? this.llm;
+    const llmWeight = active?.weight ?? this.llmWeight;
+    const llmCandidateLimit = active?.candidateLimit ?? this.llmCandidateLimit;
     const context = { now: new Date(), recentlyDelivered };
     const algorithm = algorithmReference(this.algorithm);
     const baseRanked = candidates
@@ -135,18 +140,23 @@ export class RankFeed {
     const llmCandidateIds = new Set(
       baseRanked
         .filter(({ article }) => article.contentStatus === "extracted")
-        .slice(0, this.llmCandidateLimit)
+        .slice(0, llmCandidateLimit)
         .map(({ article }) => article.id),
     );
 
     const ranked = await Promise.all(baseRanked.map(async ({ article, base }): Promise<RankedArticle> => {
-      const cached = await this.repository.findEvaluation(article.id, channelId, profile.version);
-      const shouldUseLlm = this.llm.enabled
+      const cacheKey = createHash("sha256").update(JSON.stringify({
+        article: { ...article, fetchedAt: undefined }, profileVersion: profile.version,
+        algorithm: this.algorithm.metadata.version, evaluator: evaluator.cacheIdentity ?? evaluator.name, prompt: "article-assessment-v1", weight: llmWeight,
+      })).digest("hex");
+      const stored = await this.repository.findEvaluation(article.id, channelId, profile.version);
+      const cached = stored?.cacheKey === cacheKey ? stored : null;
+      const shouldUseLlm = evaluator.enabled
         && llmCandidateIds.has(article.id);
       const cacheMatchesEvaluator = shouldUseLlm
         ? cachedSemanticOnly
-          ? cached?.llm === null || cached?.llm?.model === this.llm.name
-          : cached?.llm?.model === this.llm.name
+          ? cached?.llm === null || cached?.llm?.model === evaluator.name
+          : cached?.llm?.model === evaluator.name
         : cached?.llm === null;
       const cacheMatchesAlgorithm = cached?.rankingAlgorithm === this.algorithm.name;
       if (cached && cacheMatchesAlgorithm && cacheMatchesEvaluator) {
@@ -156,10 +166,10 @@ export class RankFeed {
           algorithm,
           semanticOutcome(
             article,
-            this.llm.enabled,
+            evaluator.enabled,
             shouldUseLlm,
             cached.llm,
-            this.llmCandidateLimit,
+            llmCandidateLimit,
             cachedSemanticOnly,
           ),
         );
@@ -168,22 +178,22 @@ export class RankFeed {
       let llm = null;
       let semantic = semanticOutcome(
         article,
-        this.llm.enabled,
+        evaluator.enabled,
         shouldUseLlm,
         null,
-        this.llmCandidateLimit,
+        llmCandidateLimit,
         cachedSemanticOnly,
       );
       if (shouldUseLlm && !cachedSemanticOnly) {
         const action = this.actions?.enqueue({
           kind: "semantic-evaluation",
           label: article.title,
-          detail: `Waiting for ${this.llm.name} evaluation for #${channelName}`,
-          context: { articleId: article.id, channelId, evaluator: this.llm.name },
+          detail: `Waiting for ${evaluator.name} evaluation for #${channelName}`,
+          context: { articleId: article.id, channelId, evaluator: evaluator.name },
         });
-        action?.start(`Evaluating full article with ${this.llm.name}`);
+        action?.start(`Evaluating full article with ${evaluator.name}`);
         try {
-          llm = await this.llm.assess({
+          llm = await evaluator.assess({
             article,
             profile,
             rankingAlgorithm: this.algorithm.name,
@@ -201,10 +211,11 @@ export class RankFeed {
         }
       }
       const finalScore = llm
-        ? base.score * (1 - this.llmWeight) + llm.score * this.llmWeight
+        ? base.score * (1 - llmWeight) + llm.score * llmWeight
         : base.score;
       const reason = llm?.reason ?? baseReason(base, this.algorithm.name);
       await this.repository.saveEvaluation({
+        cacheKey,
         articleId: article.id,
         channelId,
         profileVersion: profile.version,

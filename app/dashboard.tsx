@@ -47,6 +47,7 @@ export function Dashboard() {
   const [user, setUser] = useState<User | null>(null);
   const [channel, setChannel] = useState({ id: "admin-preview", name: "dashboard-preview" });
   const [busy, setBusy] = useState(false);
+  const [ingestionJobId, setIngestionJobId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [ratingArticle, setRatingArticle] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -109,6 +110,31 @@ export function Dashboard() {
     return () => window.clearTimeout(request);
   }, [channel, load, page, refreshVersion, unratedOnly, user]);
 
+  useEffect(() => {
+    if (!ingestionJobId) return;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        const response = await fetch(apiUrl(`/api/jobs/${encodeURIComponent(ingestionJobId)}`), { signal: controller.signal });
+        if (!response.ok) throw new Error(`Could not check ingestion (${response.status})`);
+        const job = await response.json() as { status: string; error?: string };
+        if (job.status === "completed" || job.status === "failed") {
+          setIngestionJobId(null);
+          setBusy(false);
+          if (job.status === "failed") setError(job.error || "Ingestion failed; see the operation queue");
+          else { setPage(1); setRefreshVersion((current) => current + 1); }
+        } else timer = setTimeout(() => void poll(), 1500);
+      } catch (pollError) {
+        if (controller.signal.aborted) return;
+        setError(pollError instanceof Error ? pollError.message : "Could not check ingestion");
+        timer = setTimeout(() => void poll(), 3000);
+      }
+    };
+    void poll();
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [ingestionJobId]);
+
   const currentDate = useMemo(() => new Intl.DateTimeFormat("en", {
     weekday: "short",
     day: "2-digit",
@@ -118,15 +144,18 @@ export function Dashboard() {
   async function runIngestion() {
     setBusy(true);
     setError(null);
+    let queued = false;
     try {
       const response = await fetch(apiUrl("/api/ingestion"), { method: "POST" });
       if (!response.ok) throw new Error(`Ingestion failed with ${response.status}`);
+      const result = await response.json() as { jobId?: string };
+      if (result.jobId) { queued = true; setIngestionJobId(result.jobId); return; }
       setPage(1);
       setRefreshVersion((current) => current + 1);
     } catch (ingestionError) {
       setError(ingestionError instanceof Error ? ingestionError.message : "Ingestion failed");
     } finally {
-      setBusy(false);
+      if (!queued) setBusy(false);
     }
   }
 
@@ -200,6 +229,7 @@ export function Dashboard() {
           <a className="active" href="/learning">Learning</a>
           <a href="/algorithms">Algorithms</a>
           <a href="/users">Users</a>
+          <a href="/settings/inference">Inference</a>
         </nav>
         <div className="headerStatus">
           <span className="userIdentity" title={user?.id ?? "Creating anonymous identity"}>

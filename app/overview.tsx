@@ -131,6 +131,7 @@ export function Overview() {
           <a href="/learning">Learning</a>
           <a href="/algorithms">Algorithms</a>
           <a href="/users">Users</a>
+          <a href="/settings/inference">Inference</a>
         </nav>
         <div className="headerStatus">
           <span className="userIdentity" title={user?.id ?? "Creating anonymous identity"}>

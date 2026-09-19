@@ -1,0 +1,79 @@
+services:
+  server:
+    build: .
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 35s
+    command:
+      [
+        "sh",
+        "-c",
+        "node --import tsx src/entrypoints/migrate.ts && exec node --import tsx src/entrypoints/server.ts",
+      ]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-concierge}:${SERVICE_PASSWORD_64_DATABASE}@database:5432/${POSTGRES_DB:-concierge}
+      PORT: "8080"
+      DASHBOARD_ORIGIN: ${DASHBOARD_ORIGIN:-http://localhost:8080}
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-http://model:11434/v1}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-ollama}
+      OPENAI_MODEL: ${OPENAI_MODEL:-qwen2.5:1.5b}
+      OPENAI_MODEL_REVISION: ${OPENAI_MODEL_REVISION:-1}
+      OPENAI_TIMEOUT_MS: ${OPENAI_TIMEOUT_MS:-120000}
+      INFERENCE_ADMIN_TOKEN: ${SERVICE_PASSWORD_64_INFERENCE_ADMIN}
+      INFERENCE_SETTINGS_KEY: ${SERVICE_HEX_64_INFERENCE_SETTINGS}
+      LLM_WEIGHT: ${LLM_WEIGHT:-0.30}
+      LLM_CANDIDATE_LIMIT: ${LLM_CANDIDATE_LIMIT:-2}
+      RANKING_ALGORITHM: ${RANKING_ALGORITHM:-interpretable-linear-v1}
+      ARTICLES_PER_SOURCE: ${ARTICLES_PER_SOURCE:-25}
+      INGEST_CRON: ${INGEST_CRON:-*/30 * * * *}
+      DELIVERY_CRON: ${DELIVERY_CRON:-0 */4 * * *}
+      DELIVERY_COUNT: ${DELIVERY_COUNT:-3}
+      RUN_INGESTION_ON_START: ${RUN_INGESTION_ON_START:-false}
+      SERENDIPITY_THRESHOLD: ${SERENDIPITY_THRESHOLD:-0.88}
+      SERENDIPITY_PROBABILITY: ${SERENDIPITY_PROBABILITY:-0.35}
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+      ADMIN_CHANNEL_ID: ${ADMIN_CHANNEL_ID:-admin-preview}
+      ADMIN_CHANNEL_NAME: ${ADMIN_CHANNEL_NAME:-dashboard-preview}
+    expose: ["8080"]
+    depends_on:
+      database:
+        condition: service_healthy
+    networks: [app, data]
+
+  database:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-concierge}
+      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_64_DATABASE}
+      POSTGRES_DB: ${POSTGRES_DB:-concierge}
+    volumes: ["postgres-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [data]
+
+  # Optional example inference service. Any OpenAI-compatible endpoint can replace it.
+  model:
+    image: ollama/ollama:0.34.2
+    profiles: [local-model]
+    restart: unless-stopped
+    volumes: ["model-data:/root/.ollama"]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks: [app]
+
+volumes:
+  postgres-data:
+  model-data:
+
+networks:
+  app:
+  data:
+    internal: true

@@ -63,6 +63,7 @@ export function OperationQueue() {
           <a href="/learning">Learning</a>
           <a href="/algorithms">Algorithms</a>
           <a href="/users">Users</a>
+          <a href="/settings/inference">Inference</a>
         </nav>
         <a className="backLink" href="/">← Control room</a>
       </header>
