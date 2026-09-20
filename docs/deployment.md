@@ -95,7 +95,9 @@ automatic deployments/webhooks for the selected branch in Coolify if desired.
 Deploy one server instance; its PostgreSQL ownership lock prevents overlapping
 active schedulers.
 
-The inference settings API requires its own admin token. The rest of the API
+The inference settings API requires its own admin token. Operator actions also
+live at `/api/admin` with the same bearer token (`GET /api/admin/status`,
+`POST /api/admin/ingestion`, `POST /api/admin/delivery`). The rest of the API
 and administrative dashboard retain the existing POC access model; apply your
 intended access controls before making that surface public.
 

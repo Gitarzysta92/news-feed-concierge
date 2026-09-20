@@ -82,6 +82,22 @@ while the server is running. It requires PostgreSQL, `INFERENCE_ADMIN_TOKEN`, an
 `INFERENCE_SETTINGS_KEY`; saved settings override the initial environment values.
 See [deployment instructions](docs/deployment.md) for setup.
 
+## Admin API
+
+Operator routes live under `/api/admin` and use the same bearer token as the Inference
+panel (`INFERENCE_ADMIN_TOKEN`, 16+ characters). Coolify's generated
+`SERVICE_PASSWORD_64_INFERENCE_ADMIN` value is that token.
+
+```bash
+TOKEN=... # INFERENCE_ADMIN_TOKEN
+curl -sS -H "Authorization: Bearer $TOKEN" https://news.example.com/api/admin/status
+curl -sS -H "Authorization: Bearer $TOKEN" -X POST https://news.example.com/api/admin/ingestion
+curl -sS -H "Authorization: Bearer $TOKEN" -X POST https://news.example.com/api/admin/delivery
+```
+
+`GET /api/admin` lists the full catalog. Public `/health` stays unauthenticated.
+The dashboard POC routes under `/api` remain open.
+
 ## Operation queue
 
 With PostgreSQL configured, ingestion and evaluation run as persistent background

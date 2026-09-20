@@ -1,11 +1,12 @@
 import cors from "cors";
-import { createHash, timingSafeEqual } from "node:crypto";
 import express from "express";
 import { z } from "zod";
 import { REACTIONS } from "../domain/reactions.js";
 import type { FeedbackReaction } from "../domain/model.js";
 import type { AppContainer } from "../bootstrap/container.js";
 import { createContainer } from "../bootstrap/container.js";
+import { adminAuth } from "./admin-auth.js";
+import { mountAdminApi } from "./admin-api.js";
 
 const feedbackSchema = z.object({
   channelId: z.string().min(1),
@@ -29,17 +30,13 @@ export function createApi(container: AppContainer) {
   app.use(cors({ origin: container.config.dashboardOrigin }));
   app.use(express.json({ limit: "32kb" }));
 
-  app.use("/api/settings/inference", (request, response, next) => {
-    response.setHeader("Cache-Control", "no-store");
-    const expected = container.config.inferenceAdminToken;
-    if (!expected || expected.length < 16 || !container.inference.available) {
-      response.status(503).json({ error: "Inference settings require PostgreSQL, INFERENCE_ADMIN_TOKEN (16+ characters), and INFERENCE_SETTINGS_KEY (64 hex characters)" });
-      return;
-    }
-    const supplied = request.get("authorization")?.replace(/^Bearer /i, "") ?? "";
-    const digest = (value: string) => createHash("sha256").update(value).digest();
-    if (!timingSafeEqual(digest(supplied), digest(expected))) {
-      response.status(401).json({ error: "Invalid admin token" });
+  mountAdminApi(app, container);
+
+  app.use("/api/settings/inference", adminAuth(container), (_request, response, next) => {
+    if (!container.inference.available) {
+      response.status(503).json({
+        error: "Inference settings require PostgreSQL, INFERENCE_ADMIN_TOKEN (16+ characters), and INFERENCE_SETTINGS_KEY (64 hex characters)",
+      });
       return;
     }
     next();
