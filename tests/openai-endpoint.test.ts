@@ -98,6 +98,24 @@ test("evaluator uses standard Chat Completions with configurable endpoint and va
   );
 });
 
+test("evaluator treats a missing model host as optional and stops retrying immediately", async (context) => {
+  const warnings: string[] = [];
+  context.mock.method(console, "warn", (message: unknown) => {
+    warnings.push(String(message));
+  });
+  const evaluator = new OpenAiArticleEvaluator("test", "qwen", {
+    baseURL: "http://model:11434/v1",
+    timeoutMs: 1000,
+    unavailableRetryMs: 60_000,
+  });
+  assert.equal(evaluator.enabled, true);
+  assert.equal(await evaluator.assess(input), null);
+  assert.equal(evaluator.enabled, false);
+  assert.equal(await evaluator.assess(input), null);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0] ?? "", /unreachable at http:\/\/model:11434\/v1/);
+});
+
 test("evaluator aborts a stalled compatible endpoint", async (context) => {
   const server = createServer(() => { /* Simulate an inference request that never finishes. */ });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));

@@ -33,8 +33,10 @@ the encryption key stable; changing it prevents the server from reading a saved
 API key. Environment `OPENAI_*` and `LLM_*` values are initial defaults until
 the first panel save. The panel requires PostgreSQL and both admin secrets.
 
-To use an existing model service, remove `COMPOSE_PROFILES=local-model` and set
-`OPENAI_BASE_URL`, `OPENAI_API_KEY`, and `OPENAI_MODEL`. The URL must include `/v1`.
+Without the `local-model` profile, Compose defaults to `LLM_PROVIDER=disabled` so
+the server does not call hostname `model`. To use an existing model service, remove
+`COMPOSE_PROFILES=local-model` and set `LLM_PROVIDER=openai`, `OPENAI_BASE_URL`,
+`OPENAI_API_KEY`, and `OPENAI_MODEL`. The URL must include `/v1`.
 For an endpoint that ignores authentication, use a nonempty placeholder key.
 The endpoint must support Chat Completions JSON mode. Set `LLM_PROVIDER=disabled`
 to run entirely with base ranking.

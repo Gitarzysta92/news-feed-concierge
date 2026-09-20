@@ -126,9 +126,10 @@ export async function createContainer(options: { exclusive?: boolean } = {}) {
       () => ({ llm: inference.activeEvaluator, weight: inference.activeWeight, candidateLimit: inference.activeCandidateLimit }),
     );
     workflows?.register("ingestion", () => ingestionCoordinator.execute());
-    workflows?.register("evaluation", ({ channelId, channelName }) =>
-      rankFeed.execute(channelId, channelName, { limit: 50 }),
-    );
+    workflows?.register("evaluation", ({ channelId, channelName }) => {
+      if (!llm.enabled) return;
+      return rankFeed.execute(channelId, channelName, { limit: 50 });
+    });
     const submitFeedback = new SubmitFeedback(
       repository,
       rankingAlgorithm,
@@ -140,12 +141,14 @@ export async function createContainer(options: { exclusive?: boolean } = {}) {
       rankFeed,
       actionQueue,
       workflows
-        ? (channelId, channelName) =>
-            workflows.enqueue(
+        ? (channelId, channelName) => {
+            if (!llm.enabled) return;
+            return workflows.enqueue(
               "evaluation",
               { channelId, channelName },
               `evaluation:${channelId}`,
-            )
+            );
+          }
         : undefined,
     );
 

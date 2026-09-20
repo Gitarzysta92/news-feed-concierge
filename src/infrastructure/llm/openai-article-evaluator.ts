@@ -11,24 +11,60 @@ const AssessmentSchema = z.object({
   reason: z.string(),
 });
 
+const UNREACHABLE_RETRY_MS = 60_000;
+const UNREACHABLE_CODES = new Set([
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "UND_ERR_CONNECT_TIMEOUT",
+]);
+
 export class OpenAiArticleEvaluator implements LlmEvaluator {
-  readonly enabled = true;
   readonly name: string;
   readonly cacheIdentity: string;
   private readonly client: OpenAI;
+  private readonly unavailableRetryMs: number;
+  private unavailableUntil = 0;
+  private warnedUnreachable = false;
 
   constructor(
     apiKey: string,
     private readonly model: string,
-    options: { baseURL?: string; timeoutMs?: number; revision?: string } = {},
+    options: { baseURL?: string; timeoutMs?: number; revision?: string; unavailableRetryMs?: number } = {},
     private readonly maxArticleCharacters = 14_000,
   ) {
     this.client = new OpenAI({ apiKey, baseURL: options.baseURL, timeout: options.timeoutMs ?? 120_000, maxRetries: 0 });
+    this.unavailableRetryMs = options.unavailableRetryMs ?? UNREACHABLE_RETRY_MS;
     this.name = `${model}@${options.revision ?? "1"}`;
     this.cacheIdentity = JSON.stringify([this.client.baseURL, this.name, this.maxArticleCharacters, "article-assessment-v1"]);
   }
 
+  get enabled() {
+    return Date.now() >= this.unavailableUntil;
+  }
+
   async assess(input: Parameters<LlmEvaluator["assess"]>[0]): Promise<LlmAssessment | null> {
+    if (!this.enabled) return null;
+    try {
+      return await this.complete(input);
+    } catch (error) {
+      const reason = unreachableReason(error);
+      if (!reason) throw error;
+      this.unavailableUntil = Date.now() + this.unavailableRetryMs;
+      if (!this.warnedUnreachable) {
+        this.warnedUnreachable = true;
+        console.warn(
+          `Semantic evaluator unreachable at ${this.client.baseURL} (${reason}); using base ranking until it responds`,
+        );
+      }
+      return null;
+    }
+  }
+
+  private async complete(input: Parameters<LlmEvaluator["assess"]>[0]): Promise<LlmAssessment | null> {
     const response = await this.client.chat.completions.create({
       model: this.model,
       messages: [
@@ -83,6 +119,19 @@ export class OpenAiArticleEvaluator implements LlmEvaluator {
       model: this.name,
     };
   }
+}
+
+export function unreachableReason(error: unknown): string | undefined {
+  let current: unknown = error;
+  while (current && typeof current === "object") {
+    const code = "code" in current && current.code != null ? String(current.code) : "";
+    if (UNREACHABLE_CODES.has(code)) {
+      const host = "hostname" in current && current.hostname != null ? String(current.hostname) : "";
+      return host ? `${code} ${host}` : code;
+    }
+    current = "cause" in current ? current.cause : undefined;
+  }
+  return undefined;
 }
 
 export class DisabledLlmEvaluator implements LlmEvaluator {
