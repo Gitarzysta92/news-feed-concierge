@@ -46,3 +46,13 @@ test("saved inference settings replace the active evaluator and survive restart 
   assert.equal(restarted.snapshot().hasApiKey, true);
   assert.equal(JSON.stringify(stored).includes("replacement-secret"), false);
 });
+
+test("inference settings are unavailable until a 64-hex encryption key is present", () => {
+  const database = { async query() { return { rows: [] }; } } as unknown as PostgresDatabase;
+  const missing = new LiveInference(database, defaults);
+  assert.equal(missing.available, false);
+  assert.match(missing.unavailableReason ?? "", /INFERENCE_SETTINGS_KEY/);
+  const padded = new LiveInference(database, defaults, `  ${randomBytes(32).toString("hex")}  `);
+  assert.equal(padded.available, true);
+  assert.equal(padded.unavailableReason, null);
+});

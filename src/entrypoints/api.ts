@@ -35,7 +35,8 @@ export function createApi(container: AppContainer) {
   app.use("/api/settings/inference", adminAuth(container), (_request, response, next) => {
     if (!container.inference.available) {
       response.status(503).json({
-        error: "Inference settings require PostgreSQL, INFERENCE_ADMIN_TOKEN (16+ characters), and INFERENCE_SETTINGS_KEY (64 hex characters)",
+        error: container.inference.unavailableReason
+          ?? "Inference settings require PostgreSQL, INFERENCE_ADMIN_TOKEN (16+ characters), and INFERENCE_SETTINGS_KEY (64 hex characters)",
       });
       return;
     }

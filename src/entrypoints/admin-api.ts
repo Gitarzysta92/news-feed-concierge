@@ -26,6 +26,7 @@ export interface AdminApiContainer {
   ingestionCoordinator: { running: boolean; execute(): Promise<unknown> };
   inference: {
     available: boolean;
+    unavailableReason?: string | null;
     snapshot(): unknown;
     update(input: unknown): Promise<unknown>;
   };
@@ -83,6 +84,7 @@ export function mountAdminApi(app: Express, container: AdminApiContainer) {
         rankingAlgorithm: container.rankingAlgorithm.name,
         ingestionRunning: container.ingestionCoordinator.running,
         inferenceSettings: container.inference.available,
+        inferenceSettingsReason: container.inference.unavailableReason ?? null,
         stats,
         channels: channels.map((channel) => ({
           id: channel.id,
@@ -192,7 +194,8 @@ export function mountAdminApi(app: Express, container: AdminApiContainer) {
   admin.use("/settings/inference", (_request, response, next) => {
     if (!container.inference.available) {
       response.status(503).json({
-        error: "Inference settings require PostgreSQL and INFERENCE_SETTINGS_KEY (64 hex characters)",
+        error: container.inference.unavailableReason
+          ?? "Inference settings require PostgreSQL and INFERENCE_SETTINGS_KEY (64 hex characters)",
       });
       return;
     }

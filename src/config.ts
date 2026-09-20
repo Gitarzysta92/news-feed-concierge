@@ -26,6 +26,8 @@ const envSchema = z.object({
   OPENAI_TIMEOUT_MS: z.coerce.number().int().min(1000).max(600000).default(120000),
   INFERENCE_ADMIN_TOKEN: z.string().optional(),
   INFERENCE_SETTINGS_KEY: z.string().optional(),
+  SERVICE_PASSWORD_64_INFERENCE_ADMIN: z.string().optional(),
+  SERVICE_HEX_64_INFERENCE_SETTINGS: z.string().optional(),
   DISCORD_BOT_TOKEN: z.string().optional(),
 });
 
@@ -53,10 +55,25 @@ export const config = {
   openAiTimeoutMs: parsed.OPENAI_TIMEOUT_MS,
   openAiApiKey: parsed.OPENAI_API_KEY,
   openAiModel: parsed.OPENAI_MODEL,
-  inferenceAdminToken: parsed.INFERENCE_ADMIN_TOKEN,
-  inferenceSettingsKey: parsed.INFERENCE_SETTINGS_KEY,
+  inferenceAdminToken: envSecret(
+    parsed.INFERENCE_ADMIN_TOKEN,
+    parsed.SERVICE_PASSWORD_64_INFERENCE_ADMIN,
+  ),
+  inferenceSettingsKey: envSecret(
+    parsed.INFERENCE_SETTINGS_KEY,
+    parsed.SERVICE_HEX_64_INFERENCE_SETTINGS,
+  ),
   discord: {
     enabled: Boolean(parsed.DISCORD_BOT_TOKEN?.trim()),
     token: parsed.DISCORD_BOT_TOKEN?.trim() || undefined,
   },
 };
+
+function envSecret(...values: Array<string | undefined>) {
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (!trimmed || /^\$\{[A-Z0-9_]+\}$/.test(trimmed)) continue;
+    return trimmed;
+  }
+  return undefined;
+}

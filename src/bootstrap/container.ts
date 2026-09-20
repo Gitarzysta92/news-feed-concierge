@@ -90,6 +90,9 @@ export async function createContainer(options: { exclusive?: boolean } = {}) {
       apiKey: config.openAiApiKey,
     }, config.inferenceSettingsKey);
     await inference.initialize();
+    if (!inference.available) {
+      console.warn(`Inference settings unavailable: ${inference.unavailableReason}`);
+    }
     const llm: LlmEvaluator = {
       get enabled() { return inference.activeEvaluator.enabled; },
       get name() { return inference.activeEvaluator.name; },

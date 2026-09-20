@@ -35,7 +35,7 @@ export class LiveInference {
   ) {
     this.settings = settingsSchema.parse(defaults);
     this.apiKey = defaults.apiKey;
-    this.encryptionKey = keyHex && /^[a-f0-9]{64}$/i.test(keyHex) ? Buffer.from(keyHex, "hex") : null;
+    this.encryptionKey = parseEncryptionKey(keyHex);
     this.evaluator = this.makeEvaluator();
   }
 
@@ -53,11 +53,25 @@ export class LiveInference {
   }
 
   get available() { return Boolean(this.database && this.encryptionKey); }
+  get unavailableReason() {
+    if (!this.database) return "PostgreSQL is not configured (DATABASE_URL)";
+    if (!this.encryptionKey) {
+      return "INFERENCE_SETTINGS_KEY is missing or not 64 hex characters. In Coolify this is SERVICE_HEX_64_INFERENCE_SETTINGS, and it must reach the server container.";
+    }
+    return null;
+  }
   get activeEvaluator() { return this.evaluator; }
   get activeWeight() { return this.settings.weight; }
   get activeCandidateLimit() { return this.settings.candidateLimit; }
   snapshot() {
-    return { ...this.settings, hasApiKey: Boolean(this.apiKey), source: this.source, updatedAt: this.updatedAt };
+    return {
+      ...this.settings,
+      hasApiKey: Boolean(this.apiKey),
+      source: this.source,
+      updatedAt: this.updatedAt,
+      available: this.available,
+      unavailableReason: this.unavailableReason,
+    };
   }
 
   async update(input: Update) {
@@ -104,4 +118,10 @@ export class LiveInference {
     decipher.setAuthTag(tag);
     return Buffer.concat([decipher.update(data), decipher.final()]).toString("utf8");
   }
+}
+
+function parseEncryptionKey(value?: string) {
+  const key = value?.trim();
+  if (!key || !/^[a-f0-9]{64}$/i.test(key)) return null;
+  return Buffer.from(key, "hex");
 }
