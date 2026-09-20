@@ -88,7 +88,7 @@ export async function createContainer(options: { exclusive?: boolean } = {}) {
       weight: config.llmWeight,
       candidateLimit: config.llmCandidateLimit,
       apiKey: config.openAiApiKey,
-    }, config.inferenceSettingsKey);
+    }, config.inferenceSettingsKey, config.inferenceAdminToken);
     await inference.initialize();
     if (!inference.available) {
       console.warn(`Inference settings unavailable: ${inference.unavailableReason}`);

@@ -19,19 +19,14 @@ semantic evaluation becomes usable after the configured model has been pulled.
 The 1.5B example is for trying the deployment; select a model suitable for your
 hardware and evaluation quality needs. CPU execution works but can be slow.
 
-For local Compose, supply `SERVICE_PASSWORD_64_INFERENCE_ADMIN` and
-`SERVICE_HEX_64_INFERENCE_SETTINGS` in `.env.compose`; Coolify generates them
-automatically for the Git-based application. For host development, set
-`INFERENCE_ADMIN_TOKEN` and `INFERENCE_SETTINGS_KEY` in `.env` instead. The
-admin token needs at least 16 characters; the encryption key needs 64 hex
-characters. Open
-**Inference** in the dashboard and enter the admin token to edit the endpoint
+For local Compose, supply `SERVICE_PASSWORD_64_SERVER` in `.env.compose`;
+Coolify generates it from the `server` service name, the same way it generates
+the database password. For host development, set `INFERENCE_ADMIN_TOKEN` in
+`.env` instead (16+ characters). Open
+**Inference** in the dashboard and enter that token to edit the endpoint
 URL, API key, model, revision, timeout, LLM weight, and candidate limit. Saves
 take effect on the next evaluation and persist in PostgreSQL across restarts.
-The API key is encrypted in PostgreSQL and never returned to the browser. Keep
-the encryption key stable; changing it prevents the server from reading a saved
-API key. Environment `OPENAI_*` and `LLM_*` values are initial defaults until
-the first panel save. The panel requires PostgreSQL and both admin secrets.
+The API key is encrypted in PostgreSQL and never returned to the browser.
 
 Without the `local-model` profile, Compose defaults to `LLM_PROVIDER=disabled` so
 the server does not call hostname `model`. To use an existing model service, remove
@@ -61,15 +56,11 @@ point this client at an endpoint that only implements asynchronous `/v1/generate
    Save and check that Coolify parsed `server`, `database`, and the optional
    `model`. Use the normal Git-based application deployment; leave **Raw Compose
    Deployment** off. The Compose file in Git is the source of truth.
-3. Coolify generates `SERVICE_PASSWORD_64_DATABASE`,
-   `SERVICE_PASSWORD_64_INFERENCE_ADMIN`, and
-   `SERVICE_HEX_64_INFERENCE_SETTINGS` from the variable references in
-   `compose.yaml`. The database password is reused to construct `DATABASE_URL`
-   inside the stack. Copy the generated admin password into editable
-   `INFERENCE_ADMIN_TOKEN` and the generated hex value into editable
-   `INFERENCE_SETTINGS_KEY`. Coolify blocks deploy while those two are empty.
-   Keep those generated values stable across deployments and
-   store a secure copy of the encryption key with your database backup. In
+3. Coolify generates `SERVICE_PASSWORD_64_DATABASE` and
+   `SERVICE_PASSWORD_64_SERVER` from the Compose service names. The database
+   password is reused to construct `DATABASE_URL`. The server password is the
+   admin API Bearer token — no extra copy-paste. Keep those generated values
+   stable across deployments. In
    **Environment Variables**, set `DASHBOARD_ORIGIN` to the public HTTPS origin
    (for example `https://news.example.com`). Leave `NEXT_PUBLIC_API_URL` unset;
    the UI and API share one origin. The remaining `OPENAI_*` and `LLM_*` values
@@ -89,7 +80,7 @@ point this client at an endpoint that only implements asynchronous `/v1/generate
 6. Deploy the selected commit. The server runs locked, idempotent migrations
    before starting the UI/API and workflows. Open `/health`, then the dashboard
    and **Inference** panel. The admin token is the generated
-   `SERVICE_PASSWORD_64_INFERENCE_ADMIN` value under Environment Variables.
+   `SERVICE_PASSWORD_64_SERVER` value under Environment Variables.
    Verify ingestion, model evaluation, and feedback; restart once to confirm
    settings, data, and pending jobs survive.
 

@@ -47,12 +47,13 @@ test("saved inference settings replace the active evaluator and survive restart 
   assert.equal(JSON.stringify(stored).includes("replacement-secret"), false);
 });
 
-test("inference settings are unavailable until a 64-hex encryption key is present", () => {
+test("inference settings can derive an encryption key from the admin token", () => {
   const database = { async query() { return { rows: [] }; } } as unknown as PostgresDatabase;
   const missing = new LiveInference(database, defaults);
   assert.equal(missing.available, false);
-  assert.match(missing.unavailableReason ?? "", /INFERENCE_SETTINGS_KEY/);
+  const fromToken = new LiveInference(database, defaults, undefined, "a-sufficiently-long-admin-token");
+  assert.equal(fromToken.available, true);
+  assert.equal(fromToken.unavailableReason, null);
   const padded = new LiveInference(database, defaults, `  ${randomBytes(32).toString("hex")}  `);
   assert.equal(padded.available, true);
-  assert.equal(padded.unavailableReason, null);
 });

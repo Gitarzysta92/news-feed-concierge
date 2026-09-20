@@ -78,19 +78,18 @@ Use your own compatible endpoint or the optional Ollama service in `compose.yaml
 The example model must be pulled once as described in the deployment guide.
 `OPENAI_MODEL_REVISION` invalidates cached assessments after replacing model weights.
 The **Inference** panel edits the endpoint, key, model, timeout, and blending parameters
-while the server is running. It requires PostgreSQL, `INFERENCE_ADMIN_TOKEN`, and
-`INFERENCE_SETTINGS_KEY`; saved settings override the initial environment values.
+while the server is running. It requires PostgreSQL and an admin token
+(`INFERENCE_ADMIN_TOKEN`, or Coolify's generated `SERVICE_PASSWORD_64_SERVER`).
+Saved settings override the initial environment values.
 See [deployment instructions](docs/deployment.md) for setup.
 
 ## Admin API
 
-Operator routes live under `/api/admin` and use the same bearer token as the Inference
-panel (`INFERENCE_ADMIN_TOKEN`, 16+ characters). In Coolify, paste the generated
-`SERVICE_PASSWORD_64_INFERENCE_ADMIN` value into the editable `INFERENCE_ADMIN_TOKEN`
-variable — the Compose mapping row is not the token.
+Operator routes live under `/api/admin`. On Coolify the Bearer token is the generated
+`SERVICE_PASSWORD_64_SERVER` value — the same password Compose injects for the `server` service, like the database password.
 
 ```bash
-TOKEN=... # INFERENCE_ADMIN_TOKEN
+TOKEN=... # SERVICE_PASSWORD_64_SERVER
 curl -sS -H "Authorization: Bearer $TOKEN" https://news.example.com/api/admin/status
 curl -sS -H "Authorization: Bearer $TOKEN" -X POST https://news.example.com/api/admin/ingestion
 curl -sS -H "Authorization: Bearer $TOKEN" -X POST https://news.example.com/api/admin/delivery

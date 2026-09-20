@@ -26,6 +26,7 @@ const envSchema = z.object({
   OPENAI_TIMEOUT_MS: z.coerce.number().int().min(1000).max(600000).default(120000),
   INFERENCE_ADMIN_TOKEN: z.string().optional(),
   INFERENCE_SETTINGS_KEY: z.string().optional(),
+  SERVICE_PASSWORD_64_SERVER: z.string().optional(),
   SERVICE_PASSWORD_64_INFERENCE_ADMIN: z.string().optional(),
   SERVICE_HEX_64_INFERENCE_SETTINGS: z.string().optional(),
   DISCORD_BOT_TOKEN: z.string().optional(),
@@ -57,6 +58,7 @@ export const config = {
   openAiModel: parsed.OPENAI_MODEL,
   inferenceAdminToken: envSecret(
     parsed.INFERENCE_ADMIN_TOKEN,
+    parsed.SERVICE_PASSWORD_64_SERVER,
     parsed.SERVICE_PASSWORD_64_INFERENCE_ADMIN,
   ),
   inferenceSettingsKey: envSecret(

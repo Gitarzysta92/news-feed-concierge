@@ -58,7 +58,7 @@ export function mountAdminApi(app: Express, container: AdminApiContainer) {
 
   admin.get("/", (_request, response) => {
     response.json({
-      token: "Authorization: Bearer $INFERENCE_ADMIN_TOKEN",
+      token: "Authorization: Bearer $SERVICE_PASSWORD_64_SERVER",
       endpoints: ADMIN_ENDPOINTS,
     });
   });
@@ -195,7 +195,7 @@ export function mountAdminApi(app: Express, container: AdminApiContainer) {
     if (!container.inference.available) {
       response.status(503).json({
         error: container.inference.unavailableReason
-          ?? "Inference settings require PostgreSQL and INFERENCE_SETTINGS_KEY (64 hex characters)",
+          ?? "Inference settings require PostgreSQL and an admin token",
       });
       return;
     }

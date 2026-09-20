@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import type { LlmEvaluator } from "../domain/ports.js";
 import { DisabledLlmEvaluator, OpenAiArticleEvaluator } from "../infrastructure/llm/openai-article-evaluator.js";
@@ -32,10 +32,11 @@ export class LiveInference {
     private readonly database: PostgresDatabase | null,
     defaults: Settings & { apiKey?: string },
     keyHex?: string,
+    fallbackSecret?: string,
   ) {
     this.settings = settingsSchema.parse(defaults);
     this.apiKey = defaults.apiKey;
-    this.encryptionKey = parseEncryptionKey(keyHex);
+    this.encryptionKey = parseEncryptionKey(keyHex) ?? parseEncryptionKey(fallbackSecret);
     this.evaluator = this.makeEvaluator();
   }
 
@@ -56,7 +57,7 @@ export class LiveInference {
   get unavailableReason() {
     if (!this.database) return "PostgreSQL is not configured (DATABASE_URL)";
     if (!this.encryptionKey) {
-      return "INFERENCE_SETTINGS_KEY is missing or not 64 hex characters. In Coolify this is SERVICE_HEX_64_INFERENCE_SETTINGS, and it must reach the server container.";
+      return "Admin token is missing in the server container. Coolify should inject SERVICE_PASSWORD_64_SERVER.";
     }
     return null;
   }
@@ -75,7 +76,7 @@ export class LiveInference {
   }
 
   async update(input: Update) {
-    if (!this.database || !this.encryptionKey) throw new Error("Live inference settings require PostgreSQL and INFERENCE_SETTINGS_KEY");
+    if (!this.database || !this.encryptionKey) throw new Error("Live inference settings require PostgreSQL and an admin token");
     const parsed = inferenceUpdateSchema.parse(input);
     const { apiKey, clearApiKey, ...settings } = parsed;
     const nextKey = clearApiKey ? undefined : apiKey?.trim() || this.apiKey;
@@ -122,6 +123,8 @@ export class LiveInference {
 
 function parseEncryptionKey(value?: string) {
   const key = value?.trim();
-  if (!key || !/^[a-f0-9]{64}$/i.test(key)) return null;
-  return Buffer.from(key, "hex");
+  if (!key || /^\$\{[A-Z0-9_]+\}$/.test(key)) return null;
+  if (/^[a-f0-9]{64}$/i.test(key)) return Buffer.from(key, "hex");
+  if (key.length >= 16) return createHash("sha256").update(key).digest();
+  return null;
 }
