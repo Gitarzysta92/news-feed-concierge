@@ -36,6 +36,8 @@ services:
       ADMIN_CHANNEL_ID: ${ADMIN_CHANNEL_ID:-admin-preview}
       ADMIN_CHANNEL_NAME: ${ADMIN_CHANNEL_NAME:-dashboard-preview}
     expose: ["8080"]
+    # Discord and the API start as soon as Postgres is healthy. Do not wait for
+    # the optional model service; semantic ranking degrades without it.
     depends_on:
       database:
         condition: service_healthy

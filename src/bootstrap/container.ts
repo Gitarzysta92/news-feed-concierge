@@ -135,7 +135,19 @@ export async function createContainer(options: { exclusive?: boolean } = {}) {
       rebuildProfile,
       actionQueue,
     );
-    const deliverFeed = new DeliverFeed(repository, rankFeed, actionQueue);
+    const deliverFeed = new DeliverFeed(
+      repository,
+      rankFeed,
+      actionQueue,
+      workflows
+        ? (channelId, channelName) =>
+            workflows.enqueue(
+              "evaluation",
+              { channelId, channelName },
+              `evaluation:${channelId}`,
+            )
+        : undefined,
+    );
 
     return {
       async close() {

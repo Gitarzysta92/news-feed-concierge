@@ -61,7 +61,9 @@ claim atomically, renew a lease, and recover after lease expiry. Failed jobs hav
 bounded retries with backoff. The initial executor runs one job at a time.
 
 `POST /api/ingestion` returns `202` with a persisted job ID. Dashboard/feed reads
-return cached or base scores and schedule semantic evaluation in the background.
+and Discord delivery return cached or base scores and schedule semantic
+evaluation in the background. The Discord bot does not wait for the model
+service to start or respond.
 The queue UI includes durable jobs and persisted activity. Detailed activity that
 was interrupted is marked failed on restart while the parent job is recovered.
 The latest 100 activity records and latest 100 jobs are displayed; job records

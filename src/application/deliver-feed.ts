@@ -10,6 +10,7 @@ export class DeliverFeed {
     private readonly repository: ConciergeRepository,
     private readonly rankFeed: RankFeed,
     private readonly actions?: ActionQueue,
+    private readonly scheduleEvaluation?: (channelId: string, channelName: string) => Promise<unknown> | unknown,
   ) {}
 
   async execute(input: {
@@ -24,7 +25,9 @@ export class DeliverFeed {
       limit: Math.max(input.count ?? 1, 5),
       onlyUndelivered: true,
       deliveryInterface: input.edge.key,
+      semanticMode: "cached-only",
     });
+    await this.scheduleEvaluation?.(input.channelId, input.channelName);
     const delivered = [];
     for (const item of ranked) {
       if (delivered.length >= (input.count ?? 1)) break;
