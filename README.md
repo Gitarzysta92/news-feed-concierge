@@ -85,8 +85,9 @@ See [deployment instructions](docs/deployment.md) for setup.
 ## Admin API
 
 Operator routes live under `/api/admin` and use the same bearer token as the Inference
-panel (`INFERENCE_ADMIN_TOKEN`, 16+ characters). Coolify's generated
-`SERVICE_PASSWORD_64_INFERENCE_ADMIN` value is that token.
+panel (`INFERENCE_ADMIN_TOKEN`, 16+ characters). In Coolify, paste the generated
+`SERVICE_PASSWORD_64_INFERENCE_ADMIN` value into the editable `INFERENCE_ADMIN_TOKEN`
+variable — the Compose mapping row is not the token.
 
 ```bash
 TOKEN=... # INFERENCE_ADMIN_TOKEN

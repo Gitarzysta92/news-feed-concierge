@@ -65,7 +65,10 @@ point this client at an endpoint that only implements asynchronous `/v1/generate
    `SERVICE_PASSWORD_64_INFERENCE_ADMIN`, and
    `SERVICE_HEX_64_INFERENCE_SETTINGS` from the variable references in
    `compose.yaml`. The database password is reused to construct `DATABASE_URL`
-   inside the stack. Keep those generated values stable across deployments and
+   inside the stack. Copy the generated admin password into editable
+   `INFERENCE_ADMIN_TOKEN` and the generated hex value into editable
+   `INFERENCE_SETTINGS_KEY`. Coolify blocks deploy while those two are empty.
+   Keep those generated values stable across deployments and
    store a secure copy of the encryption key with your database backup. In
    **Environment Variables**, set `DASHBOARD_ORIGIN` to the public HTTPS origin
    (for example `https://news.example.com`). Leave `NEXT_PUBLIC_API_URL` unset;

@@ -9,7 +9,7 @@ export function adminAuth(container: {
     const expected = container.config.inferenceAdminToken;
     if (!expected || expected.length < 16) {
       response.status(503).json({
-        error: "Admin API requires INFERENCE_ADMIN_TOKEN (16+ characters)",
+        error: "INFERENCE_ADMIN_TOKEN is empty in the server. In Coolify set INFERENCE_ADMIN_TOKEN to the generated SERVICE_PASSWORD_64_INFERENCE_ADMIN value (16+ characters).",
       });
       return;
     }
