@@ -56,7 +56,7 @@ export const config = {
   inferenceAdminToken: parsed.INFERENCE_ADMIN_TOKEN,
   inferenceSettingsKey: parsed.INFERENCE_SETTINGS_KEY,
   discord: {
-    enabled: Boolean(parsed.DISCORD_BOT_TOKEN),
-    token: parsed.DISCORD_BOT_TOKEN,
+    enabled: Boolean(parsed.DISCORD_BOT_TOKEN?.trim()),
+    token: parsed.DISCORD_BOT_TOKEN?.trim() || undefined,
   },
 };

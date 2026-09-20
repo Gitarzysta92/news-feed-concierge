@@ -127,7 +127,7 @@ export async function createContainer(options: { exclusive?: boolean } = {}) {
     );
     workflows?.register("ingestion", () => ingestionCoordinator.execute());
     workflows?.register("evaluation", ({ channelId, channelName }) => {
-      if (!llm.enabled) return;
+      if (!llm.enabled) return Promise.resolve();
       return rankFeed.execute(channelId, channelName, { limit: 50 });
     });
     const submitFeedback = new SubmitFeedback(
@@ -142,7 +142,7 @@ export async function createContainer(options: { exclusive?: boolean } = {}) {
       actionQueue,
       workflows
         ? (channelId, channelName) => {
-            if (!llm.enabled) return;
+            if (!llm.enabled) return Promise.resolve();
             return workflows.enqueue(
               "evaluation",
               { channelId, channelName },
@@ -151,6 +151,7 @@ export async function createContainer(options: { exclusive?: boolean } = {}) {
           }
         : undefined,
     );
+    const runtime = { discord: null as { readonly connected: boolean } | null };
 
     return {
       async close() {
@@ -159,6 +160,7 @@ export async function createContainer(options: { exclusive?: boolean } = {}) {
         await repository.close?.();
       },
       config,
+      runtime,
       database,
       workflows,
       workflowStore,

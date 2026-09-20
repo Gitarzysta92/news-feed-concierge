@@ -43,42 +43,72 @@ export interface DiscordBotDependencies {
 
 export class DiscordBotAdapter implements DeliveryEdge {
   readonly key = "discord";
-  private readonly client = new Client({
-    intents: [
-      GatewayIntentBits.Guilds,
-      GatewayIntentBits.GuildMessages,
-      GatewayIntentBits.GuildMessageReactions,
-    ],
-    partials: [Partials.Message, Partials.Channel, Partials.Reaction],
-  });
+  private client = this.createClient();
+  private stopped = false;
 
-  constructor(private readonly dependencies: DiscordBotDependencies) {
-    this.client.on(Events.InteractionCreate, (interaction) => void this.onInteraction(interaction));
-    this.client.on(Events.MessageReactionAdd, (reaction, user) => void this.onReaction(reaction, user));
-    this.client.on(Events.GuildCreate, (guild) => void this.onGuildInstalled(guild));
+  constructor(private readonly dependencies: DiscordBotDependencies) {}
+
+  get connected() {
+    return this.client.isReady();
   }
 
   async start(): Promise<void> {
-    const token = this.dependencies.config.token;
-    if (!token) throw new Error("DISCORD_BOT_TOKEN is required when Discord is enabled");
-    const ready = new Promise<void>((resolve, reject) => {
-      this.client.once(Events.ClientReady, async (client) => {
-        try {
-          const guildIds = [...client.guilds.cache.keys()];
-          await Promise.all(guildIds.map((guildId) => this.registerCommands(guildId)));
-          console.log(`Discord edge connected as ${client.user.tag} in ${guildIds.length} guild(s)`);
-          resolve();
-        } catch (error) {
-          reject(error);
-        }
-      });
-    });
-    await this.client.login(token);
-    await ready;
+    const token = this.dependencies.config.token?.trim();
+    if (!token) {
+      console.warn("Discord edge is disabled because DISCORD_BOT_TOKEN is empty");
+      return;
+    }
+    void this.maintainConnection(token);
   }
 
   async stop(): Promise<void> {
+    this.stopped = true;
     this.client.destroy();
+  }
+
+  private createClient() {
+    const client = new Client({
+      intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.GuildMessageReactions,
+      ],
+      partials: [Partials.Message, Partials.Channel, Partials.Reaction],
+    });
+    client.on(Events.Error, (error) => console.error("Discord client error", error));
+    client.on(Events.Warn, (message) => console.warn("Discord warning", message));
+    client.on(Events.InteractionCreate, (interaction) => void this.onInteraction(interaction));
+    client.on(Events.MessageReactionAdd, (reaction, user) => void this.onReaction(reaction, user));
+    client.on(Events.GuildCreate, (guild) => void this.onGuildInstalled(guild));
+    client.on(Events.ClientReady, (readyClient) => void this.onClientReady(readyClient));
+    return client;
+  }
+
+  private async onClientReady(client: Client<true>) {
+    try {
+      const guildIds = [...client.guilds.cache.keys()];
+      await Promise.all(guildIds.map((guildId) => this.registerCommands(guildId)));
+      console.log(`Discord edge connected as ${client.user.tag} in ${guildIds.length} guild(s)`);
+    } catch (error) {
+      console.error("Discord command registration failed", error);
+    }
+  }
+
+  private async maintainConnection(token: string) {
+    let delayMs = 2_000;
+    while (!this.stopped) {
+      try {
+        await this.client.login(token);
+        return;
+      } catch (error) {
+        console.error("Discord login failed; retrying", error);
+        this.client.destroy();
+        if (this.stopped) return;
+        this.client = this.createClient();
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        delayMs = Math.min(delayMs * 2, 30_000);
+      }
+    }
   }
 
   async publish(channelId: string, item: RankedArticle, reason: DeliveryReason): Promise<string> {

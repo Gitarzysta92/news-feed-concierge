@@ -5,14 +5,6 @@ import { ConciergeScheduler } from "../infrastructure/scheduler/concierge-schedu
 
 export async function startApplication(apiOptions: ApiListenOptions = {}) {
   const container = await createContainer({ exclusive: true });
-  let server: Awaited<ReturnType<typeof startApi>>;
-  try {
-    await container.workflowStore?.recoverActivity();
-    server = await startApi(container, apiOptions);
-  } catch (error) {
-    await container.close();
-    throw error;
-  }
   const discord = container.config.discord.enabled
     ? new DiscordBotAdapter({
         config: container.config.discord,
@@ -22,11 +14,20 @@ export async function startApplication(apiOptions: ApiListenOptions = {}) {
         llm: container.llm,
       })
     : null;
+  container.runtime.discord = discord;
+  if (!discord) {
+    console.warn("Discord edge is disabled because DISCORD_BOT_TOKEN is not set");
+  } else {
+    void discord.start().catch((error) => {
+      console.error("Discord edge failed to start", error);
+    });
+  }
+  let server: Awaited<ReturnType<typeof startApi>>;
   try {
-    if (discord) await discord.start();
+    await container.workflowStore?.recoverActivity();
+    server = await startApi(container, apiOptions);
   } catch (error) {
     await discord?.stop();
-    server.close();
     await container.close();
     throw error;
   }

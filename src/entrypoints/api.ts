@@ -64,6 +64,7 @@ export function createApi(container: AppContainer) {
       rankingAlgorithm: container.rankingAlgorithm.name,
       rankingAlgorithmMetadata: container.rankingAlgorithm.metadata,
       discordEnabled: container.config.discord.enabled,
+      discordConnected: container.runtime.discord?.connected ?? false,
       ingestionRunning: container.ingestionCoordinator.running,
     });
   });
